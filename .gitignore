@@ -1,0 +1,12 @@
+# Sensitive config
+config/mail_config.php
+
+# Student uploaded documents
+uploads/
+
+# XAMPP / system files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
