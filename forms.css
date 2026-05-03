@@ -628,6 +628,7 @@ body {
 
 .form-navigation .btn-save {
     margin-left: auto;
+    margin-right: auto;
 }
 
 .form-navigation .btn-primary {
@@ -682,12 +683,18 @@ body {
 }
 
 .btn-save {
-    background-color: var(--bpc-gold);
-    color: var(--text-dark);
+    background-color: transparent;
+    color: var(--text-gray);
+    border: 1.5px solid var(--border-color);
+    padding: 0.5rem 1.25rem;
+    font-size: 0.85rem;
+    font-weight: 500;
 }
 
 .btn-save:hover {
-    background-color: var(--bpc-gold-dark);
+    border-color: var(--bpc-gold);
+    color: var(--text-dark);
+    background-color: #fffbf0;
 }
 
 .btn svg {

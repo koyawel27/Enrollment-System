@@ -169,6 +169,20 @@ echo $get('semester') === '2nd Semester' ? 'selected' : ''; ?>>2nd Semester</opt
 echo $get('semester') === 'Summer' ? 'selected' : ''; ?>>Summer</option>
                     </select>
                 </div>
+                <div class="form-group">
+                    <label for="admission_period">Admission Period Display Text</label>
+                    <input type="text" id="admission_period" name="admission_period"
+                           value="<?php echo htmlspecialchars($get('admission_period', '')); ?>"
+                           placeholder="e.g. June 1 – July 31, 2025">
+                    <small>Shown on the landing page banner if no date range is set.</small>
+                </div>
+                <div class="form-group">
+                    <label for="application_deadline">Application Deadline Display Text</label>
+                    <input type="text" id="application_deadline" name="application_deadline"
+                           value="<?php echo htmlspecialchars($get('application_deadline', '')); ?>"
+                           placeholder="e.g. July 31, 2025">
+                    <small>Shown alongside the admission period on the landing page banner.</small>
+                </div>
             </div>
         </div>
 
@@ -190,17 +204,17 @@ echo $get('semester') === 'Summer' ? 'selected' : ''; ?>>Summer</option>
                     <small>Last day students can submit applications (inclusive).</small>
                 </div>
 
-                <!-- Manual Override -->
+                <!-- Application Status -->
                 <div class="form-group span-2">
-                    <label for="application_open">Manual Override</label>
+                    <label for="application_open">Application Status</label>
                     <select id="application_open" name="application_open">
-                        <option value="1" <?php echo $get('application_open', '1') === '1' ? 'selected' : ''; ?>>No override — use date range above</option>
-                        <option value="0" <?php echo $get('application_open') === '0' ? 'selected' : ''; ?>>Force CLOSED — override date range</option>
+                        <option value="1" <?php echo $get('application_open', '1') === '1' ? 'selected' : ''; ?>>Open — follow the date range above</option>
+                        <option value="0" <?php echo $get('application_open') === '0' ? 'selected' : ''; ?>>Closed — stop accepting applications now</option>
                     </select>
-                    <small>Setting this to <strong>Force CLOSED</strong> shuts down applications immediately, even if today is within the date range.</small>
+                    <small>Set to <strong>Closed</strong> to immediately stop accepting applications, even if today is within the date range.</small>
                     <div id="applicationClosedCallout" class="callout callout-warning" role="alert"
-                         style="<?php echo $get('application_open') === '0' ? '' : 'display:none;'; ?>">
-                        ⚠️ Applications are force-closed. Students cannot start or submit new applications regardless of the date range.
+                        style="<?php echo $get('application_open') === '0' ? '' : 'display:none;'; ?>">
+                        ⚠️ Applications are currently closed. Students cannot start or submit new applications.
                     </div>
                 </div>
 

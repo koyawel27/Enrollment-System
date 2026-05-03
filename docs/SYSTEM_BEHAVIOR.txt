@@ -1,0 +1,1374 @@
+SYSTEM BEHAVIOR
+===============
+
+SCOPE AND SOURCES
+=================
+- This document is generated from observed runtime behavior in the PHP code under:
+  - app/
+  - config/
+  - database/bpc_ienroll.sql (authoritative full schema + data dump from phpMyAdmin)
+  - database/*.sql (incremental migrations; use in addition to or instead of dump as appropriate)
+  - assets/ (UI-only; referenced for visibility rules where needed)
+- Primary behavioral truth comes from the POST handlers that mutate state:
+  - app/handlers/save-step.php
+  - app/handlers/submit-application.php
+  - app/student/resubmit-documents.php
+  - app/admin/admin-update-status.php
+  - app/admin/admin-set-exam.php
+  - app/admin/admin-encode-results.php
+  - app/admin/admin-set-interview.php
+  - app/admin/admin-encode-interview-results.php
+  - app/admin/admin-set-final-decision.php
+  - app/handlers/applicant-decision.php
+
+
+1) HIGH-LEVEL USER JOURNEYS
+===========================
+
+STUDENT JOURNEY (CHED TRACK)
+----------------------------
+- Draft application creation and step-by-step saving
+  - Entry: app/student/application-form.php (UI) posts to app/handlers/save-step.php
+  - First save ensures an applications row exists:
+      INSERT INTO applications (user_id, current_step, status, created_at, updated_at)
+      VALUES (..., 1, 'Draft', NOW(), NOW())
+  - Status remains Draft while saving steps 1 to 6
+  - Step 5 sets program_category explicitly from student selection:
+      programTrack == 'TESDA' -> program_category = 'TESDA'
+      else -> program_category = 'CHED'
+- Final submission (Step 7)
+  - app/handlers/submit-application.php validates:
+      - Student session exists (user_id)
+      - certify and dataPrivacy checkboxes are present
+      - Required fields from steps 1 to 6 exist in DB
+      - Required uploads exist (ID photo and PSA birth cert always; grades depends on applicant_type)
+  - Generates reference_number:
+      BPC-YYYY-XXXXXXXXXX (random hex)
+  - Writes:
+      status = 'Application Submitted'
+      submitted = 1
+      submitted_at = NOW()
+      current_step = 7
+  - Side effects:
+      - Inserts applicant_messages row of type application_submitted
+      - Sends email: MailService::sendApplicationSubmittedEmail
+- Document review pipeline (admin-driven)
+  - Student sees:
+      - Dashboard status timeline changes
+      - Messages in Updates panel (applicant_messages)
+  - Admin transitions (via admin-update-status.php):
+      Application Submitted -> Documents Under Review
+      Documents Under Review -> Documents Verified OR Documents Rejected
+      Documents Re-submitted -> Documents Verified OR Documents Rejected
+- Exam pipeline (admin-driven, CHED only)
+  - Eligibility:
+      status must be Documents Verified
+      program_category must be CHED or NULL (legacy)
+  - Admin schedules exam batch:
+      app/admin/admin-set-exam.php
+      - Creates exam_schedules row
+      - Updates selected applications:
+          Documents Verified -> Exam Scheduled
+          sets exam_schedule_id
+      - Logs status_history and inserts applicant_messages
+      - Sends email: sendExamScheduledEmail
+  - Admin encodes exam results for one specific schedule batch:
+      app/admin/admin-encode-results.php
+      - Hard guard: requires POST schedule_id > 0 AND schedule exists
+      - Fetch scope is limited to:
+          applications.status = 'Exam Scheduled'
+          program_category = 'CHED' OR NULL
+          exam_schedule_id = posted schedule_id
+      - For each applicant in that batch:
+          - If present:
+              - Score normalized to 0..100
+              - determine_program_assignment decides outcome
+              - Possible outcomes:
+                  Exam Completed (assigned_program set, program_category set to CHED)
+                  Exam Failed
+                  Awaiting Applicant Decision (TESDA fallback offered, no auto-assign)
+          - If not present:
+              Exam No Show
+      - Side effects:
+          - Inserts status_history for every changed row
+          - Inserts applicant_messages for exam_scheduled/exam_passed/exam_failed/exam_noshow/awaiting_decision
+          - Sends email:
+              sendExamPassedEmail OR sendTesdaOfferEmail OR sendExamFailedEmail OR sendExamNoShowEmail
+- TESDA fallback decision (student-driven, after CHED exam)
+  - app/handlers/applicant-decision.php
+  - Applies only if:
+      student owns an application with status 'Awaiting Applicant Decision'
+  - If ACCEPT:
+      - Moves application to TESDA pipeline:
+          status = 'Documents Verified'
+          program_category = 'TESDA'
+          first_choice = third_choice (TESDA program)
+          assigned_program = third_choice
+      - Logs status_history (Applicant is changed_by)
+      - Adds applicant_messages documents_verified with TESDA-specific title
+      - Sends email:
+          sendTesdaAcceptedEmail to student
+          sendAdminTesdaDecisionEmail to all active admission_officer and super_admin
+  - If DECLINE:
+      - status = 'Application Withdrawn'
+      - Logs status_history
+      - Adds applicant_messages withdrawn
+      - Sends email:
+          sendTesdaDeclinedEmail to student
+          sendAdminTesdaDecisionEmail to all active admission_officer and super_admin
+- Interview pipeline (admin-driven, after exam pass OR after TESDA verified)
+  - Scheduling:
+      app/admin/admin-set-interview.php
+      - CHED eligible source:
+          status = 'Exam Completed' AND (program_category = 'CHED' OR NULL)
+      - TESDA eligible source:
+          status = 'Documents Verified' AND program_category = 'TESDA'
+      - Supports:
+          mode=batch (one slot for many applicants)
+          mode=individual (slot fields per applicant)
+          mode=reschedule (updates interview fields; does not validate prior status)
+      - Writes:
+          status = 'Interview Scheduled'
+          interview_date, interview_time, interview_venue, interview_type, interview_notes
+      - Logs status_history and inserts applicant_messages
+      - Sends email: sendInterviewScheduledEmail
+  - Encoding interview attendance and result:
+      app/admin/admin-encode-interview-results.php
+      - Hard guard: interview_date must be posted AND match YYYY-MM-DD
+      - Fetch scope is limited to:
+          applications.status = 'Interview Scheduled'
+          interview_date = posted date
+          plus program head filter if applicable
+      - For each applicant in that date batch:
+          - If present:
+              pass -> Interview Completed
+              fail or unselected -> Rejected
+              optional interview_score, interview_remarks saved (nullable)
+              sends:
+                  sendInterviewPassedEmail for Interview Completed
+                  sendFinalRejectedEmail for Rejected
+          - If not present:
+              Interview No Show
+              no email is sent by this handler for no-show (in-app message only)
+- Final decision (admin-driven)
+  - app/admin/admin-set-final-decision.php
+  - Applies only if:
+      status is exactly Interview Completed
+  - If admit:
+      status = Admitted/Enrolled
+      inserts applicant_messages admitted
+      sends sendAdmittedEmail
+  - If reject:
+      status = Rejected
+      inserts applicant_messages rejected
+      sends sendFinalRejectedEmail
+
+
+STUDENT JOURNEY (TESDA DIRECT TRACK)
+------------------------------------
+- Student can choose TESDA during Step 5 (programTrack)
+  - program_category becomes TESDA
+  - For TESDA applicants, save-step.php forces third_choice to empty string
+- Submission is the same as CHED (Application Submitted)
+- Admin document review is the same (Documents Under Review, Verified, Rejected, Re-submitted loop)
+- After Documents Verified, TESDA applicants skip exam scheduling and go straight to interview scheduling:
+  - admin-interview-schedule.php fetches TESDA eligible as:
+      status = Documents Verified AND program_category = TESDA
+- Interview scheduling, encoding, and final decision match the shared flow above
+
+
+ADMIN JOURNEY (ROLES AND RESPONSIBILITIES)
+-----------------------------------------
+- Admin authentication guard
+  - config/admin-auth-check.php
+  - Requires session admin_id; otherwise redirects to public/admin-login.php
+  - Backfills admin_role from DB for sessions created before RBAC fields existed
+- Roles (config/admin-permissions.php)
+  - super_admin
+  - admission_officer
+  - registrar
+  - program_head
+- Typical role actions by file behavior
+  - Super Admin
+      - Can access all admin pages that call require_admin_role including user/admin management (not exhaustively scanned here)
+  - Admission Officer
+      - Document review: admin-review-documents.php plus admin-update-status.php
+      - Exam scheduling and encoding: admin-exam-schedule.php, admin-set-exam.php, admin-exam-results.php, admin-encode-results.php
+      - Interview scheduling and encoding: admin-interview-schedule.php, admin-set-interview.php, admin-interview-results.php, admin-encode-interview-results.php
+      - Final decisions: admin-final-decision.php, admin-set-final-decision.php
+  - Program Head
+      - Can schedule interviews and encode interview results
+      - Can view exam scores in read-only form: admin-exam-view.php
+      - Sees a filtered slice of applications by assigned programs (first_choice only) using:
+          get_head_program_filter in config/admin-permissions.php
+      - On the admin dashboard work queue, program heads are further restricted to seeing only later-stage items:
+          Documents Verified
+          Exam Completed
+          Awaiting Applicant Decision
+          Interview Scheduled
+          Interview Completed
+          Interview No Show
+          Admitted/Enrolled
+          Rejected
+  - Registrar
+      - Can execute final admit/reject decisions:
+          admin-set-final-decision.php allows registrar role
+      - Can view final-decision UI:
+          admin-final-decision.php allows registrar role
+
+
+2) CORE LOGIC BY COMPONENT (FILE-BY-FILE)
+=========================================
+
+CONFIG LAYER
+------------
+
+config/admin-auth-check.php
+- Purpose: hard gate to admin pages
+- Key conditions:
+  - If admin_id missing:
+      redirect to public/admin-login.php
+  - If admin_role missing:
+      query admins.role by admin_id
+      fallback admin_role to super_admin if query fails
+- Dependency:
+  - config/paths.php for BASE_URL
+  - config/db.php for DB connection when backfilling role
+
+config/admin-permissions.php
+- Purpose: RBAC helper functions and program-head scoping
+- require_admin_role(allowed_roles)
+  - Reads session admin_role
+  - If not allowed:
+      sets admin_error and redirects to app/admin/admin-dashboard.php
+- admin_can_view_exams, admin_can_encode_exams, admin_can_schedule_interviews, admin_can_make_decisions
+  - Role allow-lists for UI and route gating
+- get_head_program_codes(conn)
+  - Only for program_head role
+  - Reads program codes from program_head_departments table:
+      SELECT program_code FROM program_head_departments WHERE head_id = ?
+  - Caches results per request via static cache
+- get_head_program_filter(conn, alias='a')
+  - Returns SQL clause and params to restrict ownership:
+      AND a.first_choice IN (?,?,...)
+  - Explicitly uses first_choice only to avoid cross-department leakage via 2nd or 3rd choice
+
+config/program-cutoffs.php
+- Purpose: per-program pass thresholds for CHED exam scoring
+- determine_program_assignment(app_row, score, cutoffs)
+  - If program_category is TESDA:
+      returns Documents Verified in TESDA track (exam should not be used)
+  - Else CHED evaluation order:
+      1st choice if CHED code and score >= cutoff -> Exam Completed with assigned_program = first_choice
+      2nd choice if CHED code and score >= cutoff -> Exam Completed with assigned_program = second_choice
+      3rd choice is treated as TESDA fallback:
+          if third_choice exists AND it is not a CHED code:
+              returns Awaiting Applicant Decision (no auto-assign)
+      else -> Exam Failed
+
+config/programs.php
+- Purpose: program name lookup, now DB-backed
+- get_all_programs(conn)
+  - Loads programs where is_active = 1
+  - Decodes careers and alt_jobs JSON columns into arrays
+  - Caches the entire set per request
+- get_program_label(code, conn)
+  - Uses cached label_cache
+  - Returns code itself if DB not available or code not found
+
+config/applicant-messages.php
+- Purpose: persistent dashboard messages for students
+- add_applicant_message(conn, user_id, message_type, title, body)
+  - Inserts into applicant_messages table
+
+
+STUDENT FLOW: STEP SAVING AND FINAL SUBMISSION
+----------------------------------------------
+
+app/handlers/save-step.php
+- Purpose: saves steps 1 to 6 of the student application wizard
+- Critical guards:
+  - Requires session user_id, else redirect index.php
+  - Enforces application period switch:
+      get_setting('application_open','1') must be '1'
+      if closed:
+          sets session error and redirects to app/student/dashboard.php
+  - Prevents edits after submission:
+      if applications.submitted is true OR status in (Submitted, Application Submitted)
+      then redirects to step 7 (not to editing steps)
+- Step behavior:
+  - Step 1: personal info; computes age; requires psaRegistryNo
+  - Step 2: address; supports sameAsPermanent shortcut
+  - Step 3: family background
+  - Step 4: education background; branches by applicant_type:
+      Freshmen requires SHS fields
+      Transferee requires previous school fields
+  - Step 5: program selection
+      - Requires firstChoice
+      - program_category set from programTrack:
+          TESDA -> program_category='TESDA' and third_choice cleared
+          else -> program_category='CHED'
+  - Step 6: file uploads
+      - Upload directory: BASE_PATH/uploads/
+      - Allowed MIME types: image/jpeg, image/png, application/pdf
+      - Max size hard-coded to 10MB
+      - Requires:
+          idPhoto always
+          birthCert always
+          grades for Freshmen
+          transferCred and tor for Transferee
+      - Stores paths as uploads/filename.ext
+      - Uses random_bytes to produce a unique suffix
+- Output:
+  - On validation errors: sets session form_errors and redirects to that step
+  - On success: clears errors and redirects forward (or stays if action != next)
+
+app/handlers/submit-application.php
+- Purpose: finalizes the application at Step 7
+- Critical guards:
+  - Requires session user_id
+  - Requires POST
+  - Requires certify and dataPrivacy checkboxes
+  - Loads the application row from DB and blocks double-submit:
+      submitted OR status in (Submitted, Application Submitted) -> redirect dashboard
+  - Required field completeness check against DB values from steps 1 to 6
+    - This is defensive: even if UI allowed navigation, server blocks submission if incomplete
+- State transition:
+  - Draft -> Application Submitted
+  - Sets submitted=1 and submitted_at
+  - Generates and stores reference_number
+  - Sets current_step=7
+- Side effects:
+  - Writes applicant_messages: application_submitted
+  - Sends email via MailService::sendApplicationSubmittedEmail
+
+
+STUDENT FLOW: DOCUMENT RESUBMISSION
+-----------------------------------
+
+app/student/resubmit-documents.php
+- Purpose: allows student to re-upload after admin rejection
+- Critical guards:
+  - Requires session user_id and POST
+  - Enforces application_open setting
+  - Only allows if current status is exactly Documents Rejected
+- Upload behavior:
+  - Same allowed MIME types and max size as step 6
+  - Uses a separate handle_reupload that treats missing files as:
+      - Error if required, else keep existing path
+- State transition:
+  - Documents Rejected -> Documents Re-submitted
+  - Clears rejection_reason and rejection_date
+  - Increments resubmission_count
+- Side effects:
+  - Inserts status_history entry (changed_by is student name)
+  - Sends student email: sendDocumentsResubmittedStudentEmail
+  - Sends admin emails to all active admins: sendDocumentsResubmittedAdminEmail
+
+
+STUDENT UI: DASHBOARD VISIBILITY RULES
+--------------------------------------
+
+app/student/dashboard.php
+- Purpose: the single source of what the student sees at each status
+- Key computed flags:
+  - is_tesda derived from program_category == TESDA
+  - is_awaiting_decision for status Awaiting Applicant Decision
+  - Various flags for rejection, no-shows, exam scheduled, interview scheduled, admitted, withdrawn
+- Timeline mapping:
+  - CHED timeline steps: submitted -> review -> verified -> exam -> exam result -> interview -> final
+  - TESDA timeline steps: submitted -> review -> verified -> interview -> final
+  - Special cases:
+      - Documents Rejected and Documents Re-submitted both map to the review step number but change label and dot styling
+      - Exam Failed and Exam No Show change label at the exam-result step
+      - Interview No Show changes label at interview step
+      - Rejected and Application Withdrawn override the last step label
+- TESDA offer banner:
+  - Visible only when status == Awaiting Applicant Decision
+  - Shows offered_tesda_label derived from third_choice
+  - Posts decision to app/handlers/applicant-decision.php
+- Exam schedule banner:
+  - Visible only when status == Exam Scheduled AND not TESDA
+  - Pulls exam fields by joining exam_schedules on exam_schedule_id
+  - Shows instructions stored on exam_schedules.instructions
+- Edit lock:
+  - When is_submitted is true, dashboard shows a note that editing is locked
+  - save-step.php also enforces lock server-side
+- Dashboard messages:
+  - Reads applicant_messages if table exists
+  - Marks all unread messages as read when dashboard is loaded
+
+
+ADMIN UI: DASHBOARD AND APPLICATION DETAIL (BEHAVIORAL NOTES)
+------------------------------------------------------------
+
+app/admin/admin-dashboard.php
+- Purpose: high-level admin work queue and stat counters
+- RBAC: includes program_head role, but applies two behavior changes for program heads:
+  - Appends department filter using first_choice ownership
+  - Limits displayed statuses to later stages (see Program Head role section above)
+- Allowed status filter chips include:
+  - Awaiting Applicant Decision
+  - Application Withdrawn
+  - Exam No Show, Interview No Show
+  - Admitted/Enrolled and Rejected
+
+app/admin/admin-application-detail.php
+- Purpose: single application details, documents, and history
+- RBAC: super_admin, admission_officer, program_head
+- Reads status history from status_history ordered by created_at ascending
+- Supports an exam no-show reschedule UI:
+  - Only when status is Exam No Show AND program_category is not TESDA
+  - Lists only upcoming exam_schedules
+- Includes an internal notes panel backed by application_notes table:
+  - Notes are admin-only and do not affect application status directly
+
+
+ADMIN FLOW: DOCUMENT REVIEW
+---------------------------
+
+app/admin/admin-review-documents.php
+- Purpose: split-screen document viewer and action panel
+- Critical guards:
+  - Requires admin role: super_admin or admission_officer
+  - Requires application_id in query string
+  - Requires application exists and submitted=1
+  - Allows access only for statuses:
+      Application Submitted
+      Documents Under Review
+      Documents Re-submitted
+- Defensive file path handling:
+  - safe_doc_path rejects paths containing ..
+  - Forces path to start with uploads/
+  - Viewer uses basename and builds URL as BASE_URL/uploads/filename
+- Actions:
+  - If Application Submitted:
+      shows Start Document Review -> posts new_status Documents Under Review
+  - If Documents Under Review or Documents Re-submitted:
+      - Approve -> posts new_status Documents Verified
+      - Reject -> posts new_status Documents Rejected plus rejection_reason
+
+app/admin/admin-update-status.php
+- Purpose: generic status transition handler for early phases (and some placeholders)
+- RBAC:
+  - require_admin_role(super_admin, admission_officer)
+- Transition enforcement:
+  - Fetches current_status from DB
+  - allowed_transitions is a hard-coded map:
+      Application Submitted -> Documents Under Review
+      Documents Under Review -> Documents Verified OR Documents Rejected
+      Documents Re-submitted -> Documents Verified OR Documents Rejected
+      Documents Verified -> Exam Scheduled (placeholder)
+      Exam Scheduled -> Exam Completed (placeholder)
+      Exam Completed -> Interview Scheduled OR Rejected (placeholder)
+      Interview Scheduled -> Admitted/Enrolled OR Rejected (placeholder)
+  - Rejects any transition not in the map
+- Rejection extra validation:
+  - Documents Rejected requires a non-empty rejection_reason
+- Side effects:
+  - Writes status_history for every update
+  - Writes applicant_messages for:
+      Documents Under Review
+      Documents Verified
+      Documents Rejected
+  - Sends email for:
+      Documents Verified
+      Documents Rejected
+  - NOTE:
+      Exam and interview phases are actually handled by separate handlers and not via this map in normal operations.
+
+
+ADMIN FLOW: EXAM SCHEDULING AND RESULT ENCODING (CHED ONLY)
+-----------------------------------------------------------
+
+app/admin/admin-exam-schedule.php (UI)
+- RBAC: super_admin, admission_officer
+- Fetches:
+  - All exam_schedules for display
+  - Unscheduled applicants:
+      status = Documents Verified
+      program_category = CHED OR NULL
+  - Already scheduled and processed:
+      status IN (Exam Scheduled, Exam Completed, Exam Failed, Exam No Show)
+      program_category = CHED OR NULL
+- Submits scheduling to admin-set-exam.php
+
+app/admin/admin-set-exam.php (POST handler)
+- RBAC: super_admin, admission_officer
+- Validates:
+  - exam_date, exam_time, exam_venue required
+  - at least one applicant id required
+  - applicant IDs sanitized to integers > 0
+- Writes:
+  - Inserts exam_schedules row with:
+      exam_date, exam_time, exam_venue, exam_type, schedule_type, passing_score=75, instructions, created_by
+  - Updates each selected application:
+      WHERE status = Documents Verified
+      sets status = Exam Scheduled
+      sets exam_schedule_id = inserted schedule id
+- Side effects:
+  - Writes status_history (old Documents Verified -> new Exam Scheduled)
+  - Inserts applicant_messages type exam_scheduled
+  - Sends email: sendExamScheduledEmail
+
+app/admin/admin-exam-results.php (UI)
+- RBAC: super_admin, admission_officer
+- Behavior:
+  - Shows pending encoding only for status Exam Scheduled and CHED or NULL
+  - Allows browsing all schedules together, but blocks submission unless a specific schedule_id is selected
+  - Posts results to admin-encode-results.php including schedule_id
+- Defensive UI validation:
+  - Requires at least one present checkbox or one score to allow submit
+  - Requires scores for all checked present entries
+  - Warns user that unchecked rows become Exam No Show
+
+app/admin/admin-encode-results.php (POST handler)
+- RBAC: super_admin, admission_officer
+- Hard scope guards:
+  - schedule_id must be posted and > 0
+  - schedule_id must exist in exam_schedules
+- Fetch scope:
+  - Only rows with:
+      status = Exam Scheduled
+      program_category = CHED OR NULL
+      exam_schedule_id = posted schedule_id
+- For each row in scope:
+  - If present:
+      - Score clamped to 0..100
+      - determine_program_assignment decides:
+          Exam Completed with assigned_program set to 1st or 2nd choice
+          Awaiting Applicant Decision when 3rd choice is TESDA fallback
+          Exam Failed when no qualifying CHED choice and no TESDA fallback
+      - Updates write:
+          exam_score, exam_marked_by, exam_marked_at
+          and for Exam Completed:
+              program_category and assigned_program updated
+  - If absent:
+      - Updates to Exam No Show
+- Side effects:
+  - Writes status_history
+  - Inserts applicant_messages
+  - Sends email:
+      Exam Completed -> sendExamPassedEmail
+      Exam Failed -> sendExamFailedEmail
+      Exam No Show -> sendExamNoShowEmail
+      Awaiting Applicant Decision -> sendTesdaOfferEmail
+
+app/admin/admin-reschedule-no-show.php (POST handler)
+- RBAC: super_admin, admission_officer
+- Purpose: move Exam No Show to a makeup exam schedule
+- Guards:
+  - Requires application_id and exam_schedule_id
+  - Requires current status exactly Exam No Show
+  - Rejects if program_category is TESDA (exams not applicable)
+  - Requires target schedule exists
+- Writes:
+  - Exam No Show -> Exam Scheduled
+  - Sets exam_schedule_id to the makeup schedule
+- Side effects:
+  - Writes status_history
+  - Inserts applicant_messages exam_scheduled with reschedule wording
+  - Sends email sendExamScheduledEmail
+  - NOTE: sendExamScheduledEmail is called here with a parameter list that appears inconsistent with MailService signature.
+
+app/admin/admin-reevaluate-exam-failed.php (UI + POST)
+- RBAC: super_admin, admission_officer
+- Purpose: one-time correction for older Exam Failed evaluations
+- Behavior:
+  - Fetches CHED Exam Failed with non-null exam_score
+  - Recomputes determine_program_assignment
+  - If would now pass:
+      updates:
+          status and program_category and assigned_program
+      logs status_history
+      inserts applicant_messages exam_passed with re-evaluation title
+      sends sendExamPassedEmail
+
+
+ADMIN FLOW: INTERVIEW SCHEDULING AND RESULT ENCODING (CHED + TESDA)
+-------------------------------------------------------------------
+
+app/admin/admin-interview-schedule.php (UI)
+- RBAC: super_admin, admission_officer, program_head
+- Program head filter applied to ownership using first_choice only
+- Fetches eligible pools:
+  - CHED eligible:
+      status = Exam Completed
+      program_category = CHED OR NULL
+  - TESDA eligible:
+      status = Documents Verified
+      program_category = TESDA
+  - Already scheduled:
+      status = Interview Scheduled
+- Allows batch mode and individual mode scheduling
+- Posts to admin-set-interview.php
+
+app/admin/admin-set-interview.php (POST handler)
+- RBAC: super_admin, admission_officer, program_head
+- Eligible status enforcement:
+  - For batch and individual scheduling, update WHERE clause enforces:
+      CHED: status = Exam Completed AND (program_category = CHED OR NULL)
+      TESDA: status = Documents Verified AND program_category = TESDA
+- Modes:
+  - batch:
+      - One set of date/time/venue/type/notes applied to selected ids
+  - individual:
+      - Per-applicant date/time/venue/type from arrays
+      - Skips rows missing any required field
+  - reschedule:
+      - Updates interview fields and sets status to Interview Scheduled without validating prior status
+      - Inserts status_history with old_status and new_status both Interview Scheduled
+- Side effects:
+  - Writes status_history for scheduled rows
+  - Inserts applicant_messages interview_scheduled
+  - Sends email sendInterviewScheduledEmail
+
+app/admin/admin-interview-results.php (UI)
+- RBAC: super_admin, admission_officer, program_head
+- Program head filter applied to ownership using first_choice only
+- Allows browsing all dates, but blocks submission unless a specific interview_date is selected
+- Posts to admin-encode-interview-results.php with interview_date
+- Defensive UI validation:
+  - Requires at least one present mark or one result selected
+  - Requires pass/fail selection for all present rows
+  - Warns that unchecked rows become Interview No Show
+
+app/admin/admin-encode-interview-results.php (POST handler)
+- RBAC: super_admin, admission_officer, program_head
+- Hard scope guards:
+  - interview_date must be posted and match YYYY-MM-DD
+- Fetch scope:
+  - Only rows with:
+      status = Interview Scheduled
+      interview_date = posted date
+      plus program-head filter for program_head role
+- Per-row outcome:
+  - Present + pass -> Interview Completed
+      writes interview_score (nullable), interview_remarks
+      inserts applicant_messages interview_completed
+      sends sendInterviewPassedEmail
+  - Present + fail OR present + missing selection -> Rejected
+      writes interview_score (nullable), interview_remarks
+      inserts applicant_messages rejected
+      sends sendFinalRejectedEmail
+  - Absent -> Interview No Show
+      writes interview_remarks and clears score
+      inserts applicant_messages interview_noshow
+      no email sent here for no-show
+
+
+ADMIN FLOW: FINAL DECISION
+--------------------------
+
+app/admin/admin-final-decision.php (UI)
+- RBAC: super_admin, admission_officer, registrar, program_head
+- Program head filter applied using first_choice only
+- Pending set:
+  - status = Interview Completed
+  - Supports track filtering CHED or TESDA
+  - Provides q search by reference, names, or email
+- Decided history:
+  - status IN (Admitted/Enrolled, Rejected)
+- Actions post to admin-set-final-decision.php
+
+app/admin/admin-set-final-decision.php (POST handler)
+- RBAC: super_admin, admission_officer, registrar
+- Guard:
+  - Only updates rows where status = Interview Completed
+- State transitions:
+  - Interview Completed -> Admitted/Enrolled
+  - Interview Completed -> Rejected
+- Side effects:
+  - Writes status_history
+  - Inserts applicant_messages admitted or rejected
+  - Sends email:
+      admit -> sendAdmittedEmail
+      reject -> sendFinalRejectedEmail
+
+
+EMAIL TRIGGERS
+--------------
+
+app/shared/MailService.php
+- Uses PHPMailer SMTP with constants from config/mail_config.php
+- Email categories and when they are sent:
+  - OTP
+      - sendOtpEmail (not traced here to a calling file)
+  - Password reset
+      - sendPasswordResetEmail called by app/auth/forgot-password.php
+  - Student lifecycle
+      - sendApplicationSubmittedEmail in submit-application.php
+      - sendDocumentsVerifiedEmail and sendDocumentsRejectedEmail in admin-update-status.php
+      - sendDocumentsResubmittedStudentEmail and sendDocumentsResubmittedAdminEmail in resubmit-documents.php
+      - sendExamScheduledEmail in admin-set-exam.php and admin-reschedule-no-show.php
+      - sendExamPassedEmail, sendExamFailedEmail, sendExamNoShowEmail, sendTesdaOfferEmail in admin-encode-results.php
+      - sendTesdaAcceptedEmail, sendTesdaDeclinedEmail, sendAdminTesdaDecisionEmail in applicant-decision.php
+      - sendInterviewScheduledEmail in admin-set-interview.php
+      - sendInterviewPassedEmail and sendFinalRejectedEmail in admin-encode-interview-results.php
+      - sendAdmittedEmail and sendFinalRejectedEmail in admin-set-final-decision.php
+
+
+PASSWORD RESET FLOW (SECURITY-RELEVANT)
+---------------------------------------
+
+app/auth/forgot-password.php
+- Defensive behavior:
+  - Always shows success message even if email does not exist, to prevent enumeration
+  - Only generates a reset token and stores it if:
+      user exists AND email_verified == 1
+  - Token lifetime: 30 minutes
+  - Generates token using random_bytes (64 hex chars)
+
+app/auth/reset-password.php
+- Validates token:
+  - reset_token matches and reset_token_expires > NOW()
+- On POST:
+  - Requires min length 6 and password confirmation match
+  - Stores password_hash using PASSWORD_DEFAULT
+  - Clears reset_token and reset_token_expires
+
+
+REMOVED / HISTORICAL PATHS
+--------------------------
+- app/admin/admin-bulk-update-status.php — **removed from the codebase (May 2026)**. It was unreachable from the UI and posed a direct-access risk. Bulk email remains available via admin-bulk-notify.php.
+
+app/handlers/backfill-applicant-messages.php
+- One-time script to create applicant_messages for older records that predate the messaging feature
+- Can run either:
+  - As admin in a browser (requires admin-auth-check)
+  - Via CLI (no admin session)
+- Special legacy handling:
+  - Looks for applications.status = No Show and converts it into either exam_noshow or interview_noshow message types
+  - Backfills admitted messages for statuses Admitted/Enrolled and Enrolled
+
+
+3) STATUS MACHINE (COMPLETE TRANSITIONS, TRIGGERS, UI VISIBILITY)
+=================================================================
+
+STATUS NAMES OBSERVED IN CODE
+-----------------------------
+- Draft
+- Application Submitted
+- Documents Under Review
+- Documents Rejected
+- Documents Re-submitted
+- Documents Verified
+- Exam Scheduled
+- Exam Completed
+- Exam Failed
+- Exam No Show
+- Awaiting Applicant Decision
+- Application Withdrawn
+- Interview Scheduled
+- Interview Completed
+- Interview No Show
+- Admitted/Enrolled
+- Enrolled (treated as admitted on student dashboard)
+- Rejected
+- No Show (legacy string appears in admin-exam-view.php and student documents.php verified_statuses list)
+
+
+PRIMARY STATE TRANSITIONS (NORMAL FLOW)
+--------------------------------------
+
+STUDENT-DRIVEN
+- Draft -> Application Submitted
+  - Trigger: POST app/handlers/submit-application.php
+  - Preconditions:
+      - certify and dataPrivacy checked
+      - required fields exist in DB
+      - required uploads exist in DB
+      - not already submitted
+  - Student UI:
+      - Reference number appears
+      - Editing becomes locked
+
+- Documents Rejected -> Documents Re-submitted
+  - Trigger: POST app/student/resubmit-documents.php
+  - Preconditions:
+      - application_open must be true
+      - current status must be Documents Rejected
+  - Student UI:
+      - Resubmitted banner shows
+      - Review step dot uses resubmitted styling
+
+- Awaiting Applicant Decision -> Documents Verified (TESDA track)
+  - Trigger: POST app/handlers/applicant-decision.php decision=accept
+  - Writes:
+      - program_category becomes TESDA
+      - first_choice becomes the TESDA program that was previously third_choice
+      - assigned_program set to TESDA program
+  - Student UI:
+      - TESDA offer banner disappears
+      - TESDA timeline is used going forward
+
+- Awaiting Applicant Decision -> Application Withdrawn
+  - Trigger: POST app/handlers/applicant-decision.php decision=decline
+  - Student UI:
+      - Withdrawn banner explains closure is the student’s choice
+
+
+ADMIN-DRIVEN (DOCUMENT REVIEW)
+- Application Submitted -> Documents Under Review
+  - Trigger: POST app/admin/admin-update-status.php
+  - UI entry point: admin-review-documents.php Start Document Review
+  - Student UI:
+      - Status badge changes to Documents Under Review
+      - Applicant message inserted (documents_review)
+      - No email sent for under review
+
+- Documents Under Review -> Documents Verified
+  - Trigger: POST app/admin/admin-update-status.php
+  - Student UI:
+      - Badge becomes Documents Verified
+      - Email sent (documents verified)
+      - Applicant message inserted (documents_verified)
+
+- Documents Under Review -> Documents Rejected
+  - Trigger: POST app/admin/admin-update-status.php with rejection_reason
+  - Student UI:
+      - Rejection banner shows reason and button to re-upload
+      - Email sent (documents rejected)
+      - Applicant message inserted (documents_rejected)
+
+- Documents Re-submitted -> Documents Verified OR Documents Rejected
+  - Trigger: POST app/admin/admin-update-status.php
+  - Same side effects as above for the target status
+
+
+ADMIN-DRIVEN (EXAM, CHED ONLY)
+- Documents Verified -> Exam Scheduled
+  - Trigger: POST app/admin/admin-set-exam.php
+  - Preconditions:
+      - row status must be Documents Verified
+      - row program_category must be CHED or NULL (enforced by the UI query, and update WHERE enforces status)
+  - Student UI:
+      - Exam banner appears with date/time/venue/type/instructions
+      - Applicant message inserted (exam_scheduled)
+      - Email sent (exam scheduled)
+
+- Exam Scheduled -> Exam Completed
+  - Trigger: POST app/admin/admin-encode-results.php
+  - Preconditions:
+      - Must be in the posted schedule_id batch
+      - Must be marked present
+      - Score qualifies for 1st or 2nd CHED choice cutoff
+  - Writes:
+      - assigned_program set to qualified CHED choice
+      - program_category written as CHED
+  - Student UI:
+      - Exam banner disappears
+      - Updates panel shows exam_passed message
+      - Email sent (passed)
+
+- Exam Scheduled -> Awaiting Applicant Decision
+  - Trigger: POST app/admin/admin-encode-results.php
+  - Preconditions:
+      - Present and score does not meet 1st or 2nd cutoff
+      - third_choice exists and is not a CHED program code (TESDA fallback)
+  - Student UI:
+      - Action required banner shows accept/decline
+      - Email sent (TESDA offer)
+      - Applicant message inserted (awaiting_decision)
+
+- Exam Scheduled -> Exam Failed
+  - Trigger: POST app/admin/admin-encode-results.php
+  - Preconditions:
+      - Present but no qualified CHED choice and no TESDA fallback path
+  - Student UI:
+      - Failed banner shows
+      - Email sent (failed)
+      - Applicant message inserted (exam_failed)
+
+- Exam Scheduled -> Exam No Show
+  - Trigger: POST app/admin/admin-encode-results.php
+  - Preconditions:
+      - Not marked present in the selected schedule batch
+  - Student UI:
+      - Missed exam banner shows
+      - Email sent (no show)
+      - Applicant message inserted (exam_noshow)
+
+- Exam No Show -> Exam Scheduled
+  - Trigger: POST app/admin/admin-reschedule-no-show.php
+  - Preconditions:
+      - Current status exactly Exam No Show
+      - Not TESDA
+      - Target schedule exists
+  - Student UI:
+      - Exam banner appears again for makeup schedule
+      - Email sent (scheduled)
+      - Applicant message inserted (exam_scheduled)
+
+
+ADMIN-DRIVEN (INTERVIEW, CHED + TESDA)
+- Exam Completed -> Interview Scheduled
+  - Trigger: POST app/admin/admin-set-interview.php (batch or individual)
+  - Preconditions:
+      - program_category = CHED or NULL AND status = Exam Completed (enforced by update WHERE)
+  - Student UI:
+      - Interview banner appears with date/time/venue/type and notes
+      - Email sent (interview scheduled)
+      - Applicant message inserted (interview_scheduled)
+
+- Documents Verified (TESDA) -> Interview Scheduled
+  - Trigger: POST app/admin/admin-set-interview.php
+  - Preconditions:
+      - program_category = TESDA AND status = Documents Verified (enforced by update WHERE)
+  - Student UI:
+      - Same interview banner and notifications as above
+
+- Interview Scheduled -> Interview Completed
+  - Trigger: POST app/admin/admin-encode-interview-results.php
+  - Preconditions:
+      - Present and result == pass
+      - Must be in the selected interview_date batch
+  - Student UI:
+      - Interview completed message shows in Updates
+      - Email sent (interview completed)
+
+- Interview Scheduled -> Rejected
+  - Trigger: POST app/admin/admin-encode-interview-results.php
+  - Preconditions:
+      - Present and result != pass (including missing selection)
+  - Student UI:
+      - Rejected banner shows
+      - Email sent (final rejected)
+
+- Interview Scheduled -> Interview No Show
+  - Trigger: POST app/admin/admin-encode-interview-results.php
+  - Preconditions:
+      - Not present for that date batch
+  - Student UI:
+      - Interview no-show banner shows
+      - No email sent by this handler
+
+
+ADMIN-DRIVEN (FINAL DECISION)
+- Interview Completed -> Admitted/Enrolled
+  - Trigger: POST app/admin/admin-set-final-decision.php decision=admit
+  - Preconditions:
+      - status must be Interview Completed
+  - Student UI:
+      - Admitted banner shows, with program label derived from assigned_program or first_choice
+      - Email sent (admitted)
+
+- Interview Completed -> Rejected
+  - Trigger: POST app/admin/admin-set-final-decision.php decision=reject
+  - Preconditions:
+      - status must be Interview Completed
+  - Student UI:
+      - Rejected banner shows
+      - Email sent (final rejected)
+
+
+STATUS-TO-UI VISIBILITY SUMMARY (STUDENT DASHBOARD)
+--------------------------------------------------
+- Draft
+  - Primary CTA: Start or Resume Application
+  - No reference number
+- Application Submitted
+  - Reference number visible
+  - Editing locked note visible
+  - Timeline at step 1 (submitted)
+- Documents Under Review
+  - Processing message (no action)
+- Documents Rejected
+  - Rejection banner visible, includes rejection_reason
+  - CTA to re-upload documents (step 6 reupload)
+- Documents Re-submitted
+  - Resubmitted banner visible (waiting for review)
+- Documents Verified
+  - No special banner
+  - Next stage depends on track:
+      CHED -> wait for exam schedule
+      TESDA -> wait for interview schedule
+- Exam Scheduled (CHED only)
+  - Exam schedule banner visible with exam_schedules join
+  - Exam instructions expander visible if instructions non-empty
+- Exam Failed OR Exam No Show
+  - Failed/no-show banner visible with guidance to contact admissions
+- Awaiting Applicant Decision
+  - TESDA offer banner visible with accept and decline buttons
+- Interview Scheduled
+  - Interview banner visible with details and notes
+- Interview No Show
+  - No-show interview banner visible (contact admissions)
+- Admitted/Enrolled OR Enrolled
+  - Congratulations banner visible with program display
+- Rejected
+  - Not approved banner visible
+- Application Withdrawn
+  - Withdrawn banner visible (explicitly student-driven)
+
+
+4) WHAT HAPPENS WHEN... (MENTAL WALKTHROUGHS FROM ACTUAL CODE PATHS)
+====================================================================
+
+WHAT HAPPENS WHEN A STUDENT CLICKS NEXT ON STEPS 1 TO 6
+-------------------------------------------------------
+- UI posts the current step form to app/handlers/save-step.php
+- The handler:
+  - Checks session user_id
+  - Checks application_open setting:
+      if closed, redirects to dashboard with an error and no DB write for the step
+  - Ensures applications row exists (inserts Draft row if missing)
+  - For the given step:
+      validates required fields
+      updates columns in applications for that step
+      sets current_step to that step
+  - On success redirects to the next step (step+1), else back to current step with form_errors
+
+WHAT HAPPENS WHEN A STUDENT SUBMITS THE FINAL STEP (STEP 7)
+-----------------------------------------------------------
+- app/handlers/submit-application.php receives POST
+- It checks certify and dataPrivacy
+- It loads the entire applications row and verifies required fields exist
+- It generates a new reference number and updates:
+  - status to Application Submitted
+  - submitted=1 and timestamps
+- It inserts an applicant_messages record: Application Submitted
+- It sends a confirmation email (non-blocking)
+- It redirects to app/student/dashboard.php
+- If the student refreshes or re-posts:
+  - already_submitted guard triggers and redirects to dashboard without changing anything
+
+WHAT HAPPENS WHEN THE APPLICATION PERIOD IS CLOSED MID-APPLICATION
+-----------------------------------------------------------------
+- save-step.php blocks all step edits with:
+  - session error: The application period is currently closed...
+  - redirect to dashboard
+- resubmit-documents.php also blocks resubmission with a similar message
+- The dashboard still renders, but shows an alert that applications are closed
+
+WHAT HAPPENS WHEN AN ADMIN STARTS DOCUMENT REVIEW
+-------------------------------------------------
+- In admin-review-documents.php, for an Application Submitted row, the Start Document Review button posts:
+  - application_id
+  - new_status = Documents Under Review
+  - return_to = review
+- admin-update-status.php:
+  - confirms transition is allowed
+  - updates applications.status to Documents Under Review
+  - logs status_history with old and new statuses
+  - inserts applicant_messages documents_review
+  - redirects back to the review page
+
+WHAT HAPPENS WHEN AN ADMIN REJECTS DOCUMENTS
+-------------------------------------------
+- admin-review-documents.php reveals a rejection form requiring a text reason
+- Posts to admin-update-status.php with:
+  - new_status = Documents Rejected
+  - rejection_reason = provided text
+- admin-update-status.php:
+  - validates rejection_reason is non-empty
+  - updates:
+      status
+      rejection_reason
+      rejection_date
+  - logs status_history with notes containing the reason
+  - inserts applicant_messages documents_rejected containing the reason
+  - sends email sendDocumentsRejectedEmail
+
+WHAT HAPPENS WHEN A STUDENT RE-UPLOADS AFTER REJECTION
+------------------------------------------------------
+- Student uses the dashboard banner to go back to application-form step 6 and submits
+- The resubmission handler app/student/resubmit-documents.php:
+  - verifies current status is Documents Rejected
+  - uploads the new files and merges unchanged file paths
+  - updates status to Documents Re-submitted
+  - clears rejection_reason and rejection_date
+  - increments resubmission_count
+  - logs status_history (changed_by is student full name)
+  - emails student and all active admins
+
+WHAT HAPPENS WHEN AN ADMIN APPROVES DOCUMENTS
+---------------------------------------------
+- admin-review-documents.php Approve button posts new_status Documents Verified
+- admin-update-status.php updates status, logs status_history, inserts applicant_messages documents_verified, sends Documents Verified email
+- Next stage depends on program_category:
+  - CHED (or NULL): exam scheduling page can pick the applicant
+  - TESDA: interview scheduling page can pick the applicant
+
+WHAT HAPPENS WHEN AN ADMIN SCHEDULES AN EXAM
+-------------------------------------------
+- admin-exam-schedule.php lists unscheduled CHED applicants with Documents Verified
+- Admin selects applicants and submits schedule form to admin-set-exam.php
+- admin-set-exam.php:
+  - inserts a new exam_schedules row
+  - for each selected applicant, updates only if status is Documents Verified:
+      status -> Exam Scheduled
+      exam_schedule_id -> new schedule id
+  - logs status_history and sends:
+      applicant_messages exam_scheduled
+      email sendExamScheduledEmail
+
+WHAT HAPPENS WHEN AN ADMIN ENTRIES EXAM RESULTS WITHOUT SELECTING A SPECIFIC SCHEDULE
+------------------------------------------------------------------------------------
+- In admin-exam-results.php:
+  - The UI allows browsing all schedules combined
+  - But it blocks submitting the form unless schedule_id > 0
+- In admin-encode-results.php:
+  - It hard blocks if schedule_id <= 0
+  - Result: no accidental marking of future-date applicants as no-show
+
+WHAT HAPPENS WHEN AN APPLICANT IS MARKED PRESENT BUT DOES NOT QUALIFY FOR 1ST OR 2ND CHED CHOICE
+------------------------------------------------------------------------------------------------
+- admin-encode-results.php calls determine_program_assignment
+- If third_choice exists and is a TESDA code (not in CHED cutoffs):
+  - It sets status to Awaiting Applicant Decision
+  - It inserts applicant_messages awaiting_decision explaining accept or decline
+  - It emails sendTesdaOfferEmail
+- If third_choice is empty or is not a TESDA fallback:
+  - It sets status to Exam Failed
+  - It inserts exam_failed message and emails sendExamFailedEmail
+
+WHAT HAPPENS WHEN THE STUDENT ACCEPTS THE TESDA FALLBACK OFFER
+--------------------------------------------------------------
+- Dashboard posts decision=accept to app/handlers/applicant-decision.php
+- The handler:
+  - validates the application belongs to the session user and status is Awaiting Applicant Decision
+  - updates:
+      status -> Documents Verified
+      program_category -> TESDA
+      first_choice and assigned_program -> third_choice
+  - logs status_history with changed_by set to Applicant
+  - sends:
+      student email sendTesdaAcceptedEmail
+      admin notifications sendAdminTesdaDecisionEmail to active admission_officer and super_admin
+
+WHAT HAPPENS WHEN THE STUDENT DECLINES THE TESDA FALLBACK OFFER
+---------------------------------------------------------------
+- app/handlers/applicant-decision.php decision=decline
+- Updates status -> Application Withdrawn
+- Logs status_history
+- Sends:
+  - sendTesdaDeclinedEmail to student
+  - sendAdminTesdaDecisionEmail to admins with verb DECLINED
+- Student dashboard shows the withdrawn banner
+
+WHAT HAPPENS WHEN A PROGRAM HEAD VIEWS EXAM SCORES
+--------------------------------------------------
+- They use app/admin/admin-exam-view.php
+- Permission gate:
+  - admin_can_view_exams must be true
+- Data ownership:
+  - get_head_program_filter applies AND a.first_choice IN (...)
+  - This means program heads see only applicants whose first_choice is in their assigned programs, even if assigned_program later differs
+- This page is read-only and explicitly says encoding is done by admission officers
+
+WHAT HAPPENS WHEN INTERVIEW RESULTS ARE ENCODED WHILE BROWSING ALL DATES
+------------------------------------------------------------------------
+- admin-interview-results.php:
+  - Allows viewing all dates, but blocks submission unless a specific interview_date is selected
+- admin-encode-interview-results.php:
+  - Hard blocks empty or invalid interview_date format
+  - Ensures only that date batch is mutated
+
+WHAT HAPPENS WHEN AN APPLICANT IS PRESENT BUT RESULT IS NOT SELECTED IN INTERVIEW ENCODING
+-----------------------------------------------------------------------------------------
+- In admin-encode-interview-results.php, the outcome defaults to the fail path:
+  - It treats fail or unselected result as Rejected
+- The UI attempts to prevent this by validating all present rows have pass/fail selected
+  - But server behavior still exists and will reject if bypassed
+
+WHAT HAPPENS WHEN A REGISTRAR ADMITS OR REJECTS AN APPLICANT
+------------------------------------------------------------
+- admin-set-final-decision.php:
+  - only applies if status is Interview Completed
+  - sets status to Admitted/Enrolled or Rejected
+  - logs status_history
+  - inserts applicant_messages admitted or rejected
+  - sends mail via MailService
+
+WHAT HAPPENS WHEN A USER REQUESTS FORGOT PASSWORD
+------------------------------------------------
+- app/auth/forgot-password.php:
+  - Validates email format
+  - Always returns a success UI to prevent enumeration
+  - Only if a verified user exists:
+      sets reset_token and reset_token_expires
+      emails a reset link for 30 minutes validity
+
+WHAT HAPPENS WHEN A USER OPENS AN EXPIRED RESET LINK
+----------------------------------------------------
+- app/auth/reset-password.php:
+  - valid_token stays false
+  - Renders Link Expired UI and a link back to request a new token
+
+
+5) EDGE CASES AND DEFENSIVE LOGIC
+=================================
+
+SCOPING TO PREVENT ACCIDENTAL BATCH UPDATES
+-------------------------------------------
+- Exam result encoding is explicitly scoped by schedule_id:
+  - UI blocks submission in admin-exam-results.php when schedule_id=0
+  - Server blocks and validates schedule_id in admin-encode-results.php
+- Interview result encoding is explicitly scoped by interview_date:
+  - UI blocks submission when date not selected
+  - Server blocks invalid or empty date in admin-encode-interview-results.php
+
+DOUBLE SUBMISSION AND LOCKING
+-----------------------------
+- submit-application.php blocks re-submission when:
+  - submitted flag is set OR status indicates submitted
+- save-step.php blocks edits once submitted flag or submitted status exists
+
+DIRECTORY TRAVERSAL AND FILE PATH SAFETY
+----------------------------------------
+- admin-review-documents.php uses safe_doc_path:
+  - rejects any path containing ..
+  - forces uploads/ prefix
+  - uses basename when generating URLs
+- Student document views in app/student/documents.php use basename to display links
+
+INPUT SANITIZATION AND PREPARED STATEMENTS
+------------------------------------------
+- Most state-mutating handlers use mysqli_prepare and bind_param
+- Known exceptions:
+  - Some listing pages build LIKE clauses with mysqli_real_escape_string
+
+NULL PROGRAM CATEGORY (LEGACY DATA)
+-----------------------------------
+- Many CHED queries allow:
+  - program_category = CHED OR program_category IS NULL
+- This keeps older rows functioning, but creates ambiguity in track-dependent UI and logic
+
+INCONSISTENT OR LEGACY STATUS STRINGS
+-------------------------------------
+- admin-exam-view.php includes No Show in a status IN list
+- app/student/documents.php includes No Show in verified_statuses
+- The main pipeline uses Exam No Show and Interview No Show, so No Show likely refers to older data
+
+POTENTIAL SIGNATURE MISMATCH IN RESCHEDULE EMAIL
+------------------------------------------------
+- admin-reschedule-no-show.php calls sendExamScheduledEmail with an extra argument (mailPassingScore)
+- MailService::sendExamScheduledEmail signature in MailService takes:
+  - to, name, referenceNumber, date, time, venue
+- Behavior risk:
+  - If PHP is strict about argument count in this environment, this can error at runtime
+  - If not, extra args are ignored in some PHP versions only for user-defined functions in certain settings, but generally this is a bug risk
+
+INTERVIEW RESCHEDULE MODE BYPASSES ELIGIBILITY
+----------------------------------------------
+- admin-set-interview.php mode=reschedule updates any application id without verifying it is currently Interview Scheduled
+- This can create silent state inconsistencies if used broadly
+
+
+6) SECURITY AND RBAC (ACTUAL FILE CHECKS)
+=========================================
+
+SESSION-BASED AUTHENTICATION
+----------------------------
+- Student auth:
+  - app/student/dashboard.php, documents.php, resubmit-documents.php, save-step.php, submit-application.php
+  - All require $_SESSION['user_id'] and redirect to index.php if missing
+- Admin auth:
+  - config/admin-auth-check.php checks $_SESSION['admin_id']
+  - Included by most admin pages and handlers
+
+ROLE-BASED ACCESS CONTROL
+-------------------------
+- Implemented in config/admin-permissions.php
+- Enforced via require_admin_role at top of admin routes, including:
+  - Document review pages and handler:
+      admin-review-documents.php
+      admin-update-status.php
+      Roles allowed: super_admin, admission_officer
+  - Exam scheduling and encoding:
+      admin-exam-schedule.php, admin-set-exam.php
+      admin-exam-results.php, admin-encode-results.php
+      Roles allowed: super_admin, admission_officer
+  - Exam view (read-only):
+      admin-exam-view.php
+      Permission check: admin_can_view_exams (super_admin, admission_officer, program_head)
+  - Interview scheduling and encoding:
+      admin-interview-schedule.php, admin-set-interview.php
+      admin-interview-results.php, admin-encode-interview-results.php
+      Roles allowed: super_admin, admission_officer, program_head
+  - Final decisions:
+      admin-final-decision.php
+      Roles allowed: super_admin, admission_officer, registrar, program_head
+      admin-set-final-decision.php
+      Roles allowed: super_admin, admission_officer, registrar
+
+PROGRAM HEAD OWNERSHIP FILTERING
+--------------------------------
+- Enforced by SQL filters returned from get_head_program_filter:
+  - Used in:
+      admin-interview-schedule.php
+      admin-interview-results.php
+      admin-encode-interview-results.php
+      admin-final-decision.php
+      admin-exam-view.php
+- Security intent:
+  - Program heads should only see and act on applicants for programs they own
+- Important nuance:
+  - Filtering uses first_choice only, not assigned_program
+  - If a CHED applicant is assigned to a 2nd choice outside their first_choice department, first_choice ownership still controls visibility
+
+PASSWORD RESET SECURITY CONTROLS
+--------------------------------
+- Token is random (random_bytes), long-lived enough for email delivery but expires in 30 minutes
+- Email enumeration is mitigated by always returning a success UI
+- Reset requires valid token and enforces minimal password length, uses password_hash
+
+
+CONFIRMED DATA MODEL NOTES
+==========================
+- STATUS HISTORY COLUMN CONFIRMATION
+  - Confirmed: status_history uses created_at, not changed_at.
+  - Actual table definition includes:
+      id
+      application_id
+      old_status
+      new_status
+      changed_by
+      notes
+      created_at
+  - Foreign key:
+      status_history.application_id -> applications.id (ON DELETE CASCADE)
+  - This aligns with the earlier bugfix and current code behavior.
+
+- PROGRAM HEAD MAPPING CONFIRMATION
+  - Confirmed mapping table and keys:
+      program_head_departments(head_id, program_code)
+  - Confirmed relationship:
+      program_head_departments.program_code maps exactly to programs.code
+  - Confirmed constraints/indexes:
+      unique (head_id, program_code)
+      index on head_id
+      index on program_code
+
+- DATABASE SCHEMA (AUTHORITATIVE: database/bpc_ienroll.sql)
+  - Export header indicates: Database `bpc_ienroll`, host 127.0.0.1:3307, generated **May 03, 2026**, MariaDB 10.4.32. Treat that file as the live snapshot; re-export from phpMyAdmin when schema drifts.
+
+  - **Tables** (structure present in dump):
+      admins
+      applicant_messages
+      applications
+      application_notes
+      exam_schedules
+      programs
+      program_head_departments
+      status_history
+      system_settings
+      users
+
+  - **Foreign keys** (explicit in dump):
+      applications.user_id -> users.id (ON DELETE CASCADE)
+      application_notes.application_id -> applications.id (ON DELETE CASCADE)
+      status_history.application_id -> applications.id (ON DELETE CASCADE)
+
+  - **Integrity note:** `applicant_messages` references `users.id` logically (`user_id` column) but the dump defines **indexes only** (`idx_user_created`, `idx_user_unread`) — **no FK** to `users`. Orphan rows are possible if rows are manipulated outside normal app flows.
+
+  - **users** columns (snapshot): id, email, password, email_verified, otp_code, otp_expires_at, created_at, last_login, reset_token, reset_token_expires
+
+  - **admins** columns (snapshot): id, name, email, password, created_at, role, is_active, last_login_at
+
+  - **applicant_messages** columns (snapshot): id, user_id, message_type, title, body, created_at, read_at
+
+  - **applications.status** ENUM exact member list (snapshot order — use this for runtime comparisons):
+      'Draft','Application Submitted','Documents Under Review','Documents Verified','Documents Rejected','Documents Re-submitted','Exam Scheduled','Exam Completed','Exam Failed','Exam No Show','Interview No Show','Awaiting Applicant Decision','Interview Scheduled','Interview Completed','Admitted/Enrolled','Rejected','Application Withdrawn'
+

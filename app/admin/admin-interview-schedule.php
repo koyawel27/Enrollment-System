@@ -74,9 +74,11 @@ $aq_sql =
             a.first_choice, a.status, a.program_category,
             a.interview_date, a.interview_time, a.interview_venue, a.interview_type
      FROM applications a
-     WHERE a.status = 'Interview Scheduled'
+     WHERE a.status IN ('Interview Scheduled', 'Interview No Show')
        {$head_filter}
-     ORDER BY a.interview_date ASC, a.interview_time ASC, a.last_name ASC";
+     ORDER BY
+       CASE WHEN a.status = 'Interview No Show' THEN 0 ELSE 1 END,
+       a.interview_date ASC, a.interview_time ASC, a.last_name ASC";
 if (!empty($head_params)) {
     $aq = mysqli_prepare($conn, $aq_sql);
     $types = str_repeat('s', count($head_params));
@@ -266,7 +268,9 @@ mysqli_close($conn);
         <div style="font-size:0.82rem;color:var(--text-gray);margin-bottom:0.75rem;font-weight:600;">SCHEDULING MODE</div>
         <div class="mode-toggle">
             <button type="button" class="mode-btn active" id="modeBatchBtn" onclick="setMode('batch')">Batch — One slot, multiple applicants</button>
-            <button type="button" class="mode-btn" id="modeIndBtn" onclick="setMode('individual')">Individual — Per-applicant date/time</button>
+        </div>
+        <div class="warning-box" style="margin-top:0.75rem;">
+            Individual scheduling is restricted to emergency reschedules only. Use the <strong>Reschedule</strong> action in the scheduled list for special cases.
         </div>
     </div>
 
@@ -289,7 +293,11 @@ mysqli_close($conn);
                 <div class="form-grid">
                     <div class="form-group"><label>Interview Date *</label><input type="date" name="batch_date" min="<?php echo date('Y-m-d', strtotime('+1 day')); ?>" required></div>
                     <div class="form-group"><label>Start Time *</label><input type="time" name="batch_time" required></div>
-                    <div class="form-group"><label>Interview Type</label><select name="batch_type"><option value="Batch">Batch (Group)</option><option value="Individual">Individual (One-on-one)</option></select></div>
+                    <div class="form-group">
+                        <label>Interview Type</label>
+                        <input type="text" value="Batch (Group)" readonly>
+                        <input type="hidden" name="batch_type" value="Batch">
+                    </div>
                     <div class="form-group span-3"><label>Venue / Location *</label><input type="text" name="batch_venue" placeholder="e.g. BPC Conference Room, Admin Building" required></div>
                     <div class="form-group span-3"><label>Notes for Applicants (optional)</label><textarea name="batch_notes" rows="4"><?php echo htmlspecialchars($default_interview_notes); ?></textarea></div>
                 </div>
@@ -398,108 +406,42 @@ mysqli_close($conn);
         <?php endif; ?>
     </div>
 
-    <!-- INDIVIDUAL MODE -->
-    <div id="individualMode" style="display:none;">
-        <?php if ($total_eligible === 0): ?>
-        <div class="card"><div class="card-title">Individual Interview Scheduling</div><div class="warning-box">ℹ No applicants are eligible for interview scheduling yet.</div></div>
-        <?php else: ?>
-        <form method="POST" action="admin-set-interview.php" id="individualForm">
-            <input type="hidden" name="mode" value="individual">
-            <div class="card">
-                <div class="card-title">Set Individual Interview Schedules <span><?php echo $total_eligible; ?> applicant(s)</span></div>
-                <div style="background:#fffbeb;border:1px solid var(--gold);border-radius:6px;padding:0.75rem 1rem;margin-bottom:1.25rem;font-size:0.82rem;color:#856404;">
-                    Fill in date/time/venue for each applicant. Leave blank to skip. Use <strong>Apply same slot to visible</strong> to copy the first row's slot to all filtered rows.
-                </div>
-                <div class="filter-row">
-                    <label for="indSearch">Search:</label>
-                    <input type="search" id="indSearch" placeholder="Name or reference #" oninput="applyIndFilters()">
-                    <label for="indFilterProgram">Program:</label>
-                    <select id="indFilterProgram" onchange="applyIndFilters()">
-                        <option value="">All programs</option>
-                        <?php foreach ($programs_for_filter as $p): ?><option value="<?php echo htmlspecialchars($p); ?>"><?php echo htmlspecialchars($p); ?></option><?php endforeach; ?>
-                    </select>
-                    <label for="indFilterType">Type:</label>
-                    <select id="indFilterType" onchange="applyIndFilters()"><option value="">All</option><option value="Freshmen">Freshmen</option><option value="Transferee">Transferee</option></select>
-                    <label for="indFilterTrack">Track:</label>
-                    <select id="indFilterTrack" onchange="applyIndFilters()"><option value="">All</option><option value="CHED">CHED</option><option value="TESDA">TESDA</option></select>
-                    <button type="button" class="btn btn-sm btn-outline" onclick="indFillSameSlot()">Apply same slot to visible</button>
-                </div>
-                <div class="pagination-bar" id="indPaginationBar" style="display:none;">
-                    <span id="indPaginationText"></span>
-                    <span>
-                        <button type="button" id="indPrevPage" onclick="indGoToPage(indCurrentPage - 1)">← Previous</button>
-                        <button type="button" id="indNextPage" onclick="indGoToPage(indCurrentPage + 1)" style="margin-left:0.35rem;">Next →</button>
-                    </span>
-                </div>
-
-                <?php if (!empty($ched_eligible)): ?>
-                <div class="section-header section-ched" style="margin-bottom:0.75rem;">CHED Applicants — Exam Passers <span class="section-count"><?php echo count($ched_eligible); ?></span></div>
-                <div class="ind-table-wrapper" style="margin-bottom:1.75rem;">
-                    <table class="ind-table">
-                        <thead><tr><th>#</th><th>Applicant</th><th>Program</th><th>Score</th><th>Date *</th><th>Time *</th><th>Venue *</th><th>Type</th></tr></thead>
-                        <tbody>
-                            <?php foreach ($ched_eligible as $i => $a): ?>
-                            <tr class="ind-row" data-name="<?php echo htmlspecialchars(strtolower($a['last_name'].' '.$a['first_name'])); ?>" data-ref="<?php echo htmlspecialchars(strtolower($a['reference_number'] ?? '')); ?>" data-program="<?php echo htmlspecialchars($a['first_choice'] ?? ''); ?>" data-type="<?php echo htmlspecialchars($a['applicant_type'] ?? ''); ?>" data-track="CHED">
-                                <td style="color:var(--gray);font-size:0.78rem;"><?php echo $i + 1; ?></td>
-                                <td><span class="name-main"><?php echo htmlspecialchars($a['last_name'].', '.$a['first_name']); ?></span><span class="name-sub"><?php echo htmlspecialchars($a['reference_number'] ?? '—'); ?></span></td>
-                                <td><?php echo htmlspecialchars($a['first_choice'] ?? '—'); ?></td>
-                                <td style="font-weight:700;color:var(--bpc-green);"><?php echo $a['exam_score'] ?? '—'; ?></td>
-                                <td><input type="date" name="ind_date[<?php echo $a['id']; ?>]" class="ind-input date-inp" min="<?php echo date('Y-m-d', strtotime('+1 day')); ?>"></td>
-                                <td><input type="time" name="ind_time[<?php echo $a['id']; ?>]" class="ind-input time-inp"></td>
-                                <td><input type="text" name="ind_venue[<?php echo $a['id']; ?>]" class="ind-input venue-inp" placeholder="Venue / Room"></td>
-                                <td><select name="ind_type[<?php echo $a['id']; ?>]" class="ind-input type-sel"><option value="Individual">Individual</option><option value="Batch">Batch</option></select></td>
-                            </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-                <?php endif; ?>
-
-                <?php if (!empty($tesda_eligible)): ?>
-                <div class="section-header section-tesda" style="margin-bottom:0.75rem;">TESDA Applicants — Direct to Interview <span class="section-count"><?php echo count($tesda_eligible); ?></span></div>
-                <div class="ind-table-wrapper">
-                    <table class="ind-table">
-                        <thead><tr><th>#</th><th>Applicant</th><th>Program</th><th>Type</th><th>Date *</th><th>Time *</th><th>Venue *</th><th>Interview Type</th></tr></thead>
-                        <tbody>
-                            <?php foreach ($tesda_eligible as $i => $a): ?>
-                            <tr class="ind-row" data-name="<?php echo htmlspecialchars(strtolower($a['last_name'].' '.$a['first_name'])); ?>" data-ref="<?php echo htmlspecialchars(strtolower($a['reference_number'] ?? '')); ?>" data-program="<?php echo htmlspecialchars($a['first_choice'] ?? ''); ?>" data-type="<?php echo htmlspecialchars($a['applicant_type'] ?? ''); ?>" data-track="TESDA">
-                                <td style="color:var(--gray);font-size:0.78rem;"><?php echo $i + 1; ?></td>
-                                <td><span class="name-main"><?php echo htmlspecialchars($a['last_name'].', '.$a['first_name']); ?></span><span class="name-sub"><?php echo htmlspecialchars($a['reference_number'] ?? '—'); ?></span></td>
-                                <td><?php echo htmlspecialchars($a['first_choice'] ?? '—'); ?></td>
-                                <td><span class="tag tag-tesda">TESDA</span></td>
-                                <td><input type="date" name="ind_date[<?php echo $a['id']; ?>]" class="ind-input date-inp" min="<?php echo date('Y-m-d', strtotime('+1 day')); ?>"></td>
-                                <td><input type="time" name="ind_time[<?php echo $a['id']; ?>]" class="ind-input time-inp"></td>
-                                <td><input type="text" name="ind_venue[<?php echo $a['id']; ?>]" class="ind-input venue-inp" placeholder="Venue / Room"></td>
-                                <td><select name="ind_type[<?php echo $a['id']; ?>]" class="ind-input type-sel"><option value="Individual">Individual</option><option value="Batch">Batch</option></select></td>
-                            </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-                <?php endif; ?>
-
-                <div class="submit-row">
-                    <div class="submit-info">Only rows with a <strong>date, time, and venue</strong> filled in will be scheduled.</div>
-                    <button type="submit" class="btn btn-green" onclick="return confirmIndividual()">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"/></svg>
-                        Save Individual Schedules
-                    </button>
-                </div>
-            </div>
-        </form>
-        <?php endif; ?>
-    </div>
-
     <!-- ALREADY SCHEDULED -->
     <div class="card">
         <div class="card-title">
-            Scheduled for Interview
+            Interview Schedule and No-Show Appeals
             <span><?php echo count($already); ?> total</span>
+        </div>
+        <div class="warning-box" style="margin-bottom:1rem;">
+            Only applicants with <strong>Interview No Show</strong> can be rescheduled here after appeal approval.
         </div>
 
         <?php if (empty($already)): ?>
             <div class="empty-state">No interviews scheduled yet.</div>
         <?php else: ?>
+            <div class="filter-row" style="margin-bottom:0.85rem;">
+                <label for="schedSearch">Search:</label>
+                <input type="search" id="schedSearch" placeholder="Name or reference #" oninput="applySchedFilters()">
+                <label for="schedFilterStatus">Status:</label>
+                <select id="schedFilterStatus" onchange="applySchedFilters()">
+                    <option value="">All</option>
+                    <option value="Interview Scheduled">Interview Scheduled</option>
+                    <option value="Interview No Show">Interview No Show</option>
+                </select>
+                <label for="schedFilterTrack">Track:</label>
+                <select id="schedFilterTrack" onchange="applySchedFilters()">
+                    <option value="">All</option>
+                    <option value="CHED">CHED</option>
+                    <option value="TESDA">TESDA</option>
+                </select>
+                <label for="schedFilterProgram">Program:</label>
+                <select id="schedFilterProgram" onchange="applySchedFilters()">
+                    <option value="">All programs</option>
+                    <?php foreach ($programs_for_filter as $p): ?>
+                        <option value="<?php echo htmlspecialchars($p); ?>"><?php echo htmlspecialchars($p); ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
             <div class="table-wrapper">
                 <table class="sched-table">
                     <thead>
@@ -509,6 +451,7 @@ mysqli_close($conn);
                             <th>Reference #</th>
                             <th>Program</th>
                             <th>Track</th>
+                            <th>Status</th>
                             <th>Date</th>
                             <th>Time</th>
                             <th>Venue</th>
@@ -520,8 +463,20 @@ mysqli_close($conn);
                         <?php foreach ($already as $i => $a):
                             $track_badge = ($a['program_category'] === 'TESDA') ? ['b-tesda','TESDA'] : ['b-ched','CHED'];
                             $type_badge  = ($a['interview_type'] === 'Individual') ? ['b-ind','Individual'] : ['b-batch','Batch'];
+                            $status_badge = ($a['status'] === 'Interview No Show')
+                                ? ['b-ind', 'Interview No Show']
+                                : ['b-batch', 'Interview Scheduled'];
+                            $row_search = strtolower(($a['last_name'] ?? '') . ' ' . ($a['first_name'] ?? '') . ' ' . ($a['reference_number'] ?? ''));
+                            $row_track  = ($a['program_category'] === 'TESDA') ? 'TESDA' : 'CHED';
+                            $row_prog   = (string)($a['first_choice'] ?? '');
                         ?>
-                        <tr>
+                        <tr class="sched-row"
+                            data-search="<?php echo htmlspecialchars($row_search); ?>"
+                            data-status="<?php echo htmlspecialchars((string)($a['status'] ?? '')); ?>"
+                            data-track="<?php echo htmlspecialchars($row_track); ?>"
+                            data-program="<?php echo htmlspecialchars($row_prog); ?>"
+                            onclick="window.location='admin-application-detail.php?id=<?php echo (int)$a['id']; ?>';"
+                            style="cursor:pointer;">
                             <td style="color:var(--gray);font-size:0.78rem;"><?php echo $i + 1; ?></td>
                             <td>
                                 <span style="font-weight:700;display:block;font-size:0.875rem;">
@@ -531,6 +486,7 @@ mysqli_close($conn);
                             <td class="ref-mono"><?php echo htmlspecialchars($a['reference_number'] ?? '—'); ?></td>
                             <td style="font-size:0.82rem;"><?php echo htmlspecialchars($a['first_choice'] ?? '—'); ?></td>
                             <td><span class="badge <?php echo $track_badge[0]; ?>"><?php echo $track_badge[1]; ?></span></td>
+                            <td><span class="badge <?php echo $status_badge[0]; ?>"><?php echo $status_badge[1]; ?></span></td>
                             <td style="font-size:0.82rem;white-space:nowrap;">
                                 <?php echo $a['interview_date'] ? date('M d, Y', strtotime($a['interview_date'])) : '—'; ?>
                             </td>
@@ -542,17 +498,22 @@ mysqli_close($conn);
                             </td>
                             <td><span class="badge <?php echo $type_badge[0]; ?>"><?php echo $type_badge[1]; ?></span></td>
                             <td>
+                                <?php if ($a['status'] === 'Interview No Show'): ?>
                                 <button type="button" class="btn btn-sm btn-outline"
-                                    onclick="openReschedule(
+                                    onclick="event.stopPropagation(); openReschedule(
                                         <?php echo $a['id']; ?>,
                                         '<?php echo htmlspecialchars(addslashes($a['last_name'].', '.$a['first_name'])); ?>',
                                         '<?php echo $a['interview_date'] ?? ''; ?>',
                                         '<?php echo $a['interview_time'] ?? ''; ?>',
                                         '<?php echo htmlspecialchars(addslashes($a['interview_venue'] ?? '')); ?>',
-                                        '<?php echo htmlspecialchars(addslashes($a['interview_type'] ?? 'Individual')); ?>'
+                                        '<?php echo htmlspecialchars(addslashes($a['interview_type'] ?? 'Individual')); ?>',
+                                        '<?php echo htmlspecialchars(addslashes($a['status'] ?? 'Interview Scheduled')); ?>'
                                     )">
-                                    Reschedule
+                                    Approve & Reschedule
                                 </button>
+                                <?php else: ?>
+                                <span style="font-size:0.78rem;color:var(--text-gray);">Not eligible</span>
+                                <?php endif; ?>
                             </td>
                         </tr>
                         <?php endforeach; ?>
@@ -572,11 +533,17 @@ mysqli_close($conn);
         <form method="POST" action="admin-set-interview.php">
             <input type="hidden" name="mode" value="reschedule">
             <input type="hidden" name="applicant_id" id="rescheduleId">
+            <input type="hidden" name="current_status" id="rescheduleCurrentStatus">
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">
                 <div class="form-group"><label>New Date *</label><input type="date" name="reschedule_date" id="rescheduleDate" min="<?php echo date('Y-m-d', strtotime('+1 day')); ?>" required></div>
                 <div class="form-group"><label>New Time *</label><input type="time" name="reschedule_time" id="rescheduleTime" required></div>
                 <div class="form-group" style="grid-column:span 2;"><label>Venue *</label><input type="text" name="reschedule_venue" id="rescheduleVenue" placeholder="e.g. BPC Conference Room" required></div>
-                <div class="form-group" style="grid-column:span 2;"><label>Interview Type</label><select name="reschedule_type" id="rescheduleType"><option value="Individual">Individual</option><option value="Batch">Batch</option></select></div>
+                <div class="form-group" style="grid-column:span 2;"><label>Interview Type</label><select name="reschedule_type" id="rescheduleType" onchange="toggleEmergencyReasonRequired()"><option value="Individual">Individual</option><option value="Batch">Batch</option></select></div>
+                <div class="form-group" style="grid-column:span 2;">
+                    <label for="rescheduleReason">Emergency Reason <span id="emergencyReasonRequiredMark" style="display:none;">*</span></label>
+                    <textarea name="reschedule_reason" id="rescheduleReason" rows="3" placeholder="Required for Individual interview type (e.g., applicant illness, verified conflict)."></textarea>
+                    <small style="font-size:0.75rem;color:var(--text-gray);">Required only when interview type is set to Individual.</small>
+                </div>
             </div>
             <div style="display:flex;justify-content:flex-end;gap:0.75rem;padding-top:1rem;border-top:1px solid var(--border-color);">
                 <button type="button" onclick="closeReschedule()" style="padding:0.6rem 1.25rem;background:#6c757d;color:white;border:none;border-radius:6px;font-weight:600;cursor:pointer;">Cancel</button>
@@ -594,9 +561,11 @@ mysqli_close($conn);
 function setMode(mode) {
     const isBatch = mode === 'batch';
     document.getElementById('batchMode').style.display      = isBatch ? 'block' : 'none';
-    document.getElementById('individualMode').style.display = isBatch ? 'none'  : 'block';
+    const individualMode = document.getElementById('individualMode');
+    if (individualMode) individualMode.style.display = isBatch ? 'none' : 'block';
     document.getElementById('modeBatchBtn').classList.toggle('active', isBatch);
-    document.getElementById('modeIndBtn').classList.toggle('active', !isBatch);
+    const modeIndBtn = document.getElementById('modeIndBtn');
+    if (modeIndBtn) modeIndBtn.classList.toggle('active', !isBatch);
 }
 
 const BATCH_PAGE_SIZE = 30;
@@ -677,94 +646,51 @@ document.getElementById('batchForm')?.addEventListener('submit', function(e) {
     return confirm(`Schedule interview for ${count} applicant(s)?`);
 });
 
-const IND_PAGE_SIZE = 25;
-let indCurrentPage = 1;
-let indFilteredRows = [];
+function toggleEmergencyReasonRequired() {
+    const typeEl = document.getElementById('rescheduleType');
+    const reasonEl = document.getElementById('rescheduleReason');
+    const markEl = document.getElementById('emergencyReasonRequiredMark');
+    if (!typeEl || !reasonEl) return;
+    const isIndividual = (typeEl.value === 'Individual');
+    reasonEl.required = isIndividual;
+    if (markEl) markEl.style.display = isIndividual ? 'inline' : 'none';
+    if (!isIndividual) reasonEl.value = '';
+}
 
-function applyIndFilters() {
-    const search  = (document.getElementById('indSearch')?.value || '').trim().toLowerCase();
-    const program = (document.getElementById('indFilterProgram')?.value || '').toLowerCase();
-    const type    = (document.getElementById('indFilterType')?.value || '').toLowerCase();
-    const track   = (document.getElementById('indFilterTrack')?.value || '').toLowerCase();
-    const rows    = document.querySelectorAll('.ind-row');
-    rows.forEach(row => {
-        const name = (row.getAttribute('data-name') || '').toLowerCase();
-        const ref  = (row.getAttribute('data-ref')  || '').toLowerCase();
-        const prog = (row.getAttribute('data-program') || '').toLowerCase();
-        const typ  = (row.getAttribute('data-type')   || '').toLowerCase();
-        const trk  = (row.getAttribute('data-track')  || '').toLowerCase();
-        const show = (!search || name.includes(search) || ref.includes(search)) && (!program || prog === program) && (!type || typ === type) && (!track || trk === track);
-        row.classList.toggle('hidden-by-filter', !show);
+function applySchedFilters() {
+    const search  = (document.getElementById('schedSearch')?.value || '').trim().toLowerCase();
+    const status  = (document.getElementById('schedFilterStatus')?.value || '').trim().toLowerCase();
+    const track   = (document.getElementById('schedFilterTrack')?.value || '').trim().toLowerCase();
+    const program = (document.getElementById('schedFilterProgram')?.value || '').trim().toLowerCase();
+    document.querySelectorAll('.sched-row').forEach(row => {
+        const s  = (row.getAttribute('data-search')  || '').toLowerCase();
+        const st = (row.getAttribute('data-status')  || '').toLowerCase();
+        const tr = (row.getAttribute('data-track')   || '').toLowerCase();
+        const pr = (row.getAttribute('data-program') || '').toLowerCase();
+        const show =
+            (!search  || s.includes(search)) &&
+            (!status  || st === status) &&
+            (!track   || tr === track) &&
+            (!program || pr === program);
+        row.style.display = show ? '' : 'none';
     });
-    indFilteredRows = Array.from(rows).filter(r => !r.classList.contains('hidden-by-filter'));
-    indCurrentPage = 1;
-    showIndPage();
-}
-
-function showIndPage() {
-    const start = (indCurrentPage - 1) * IND_PAGE_SIZE;
-    const end   = start + IND_PAGE_SIZE;
-    indFilteredRows.forEach((row, i) => { row.classList.toggle('hidden-by-page', i < start || i >= end); });
-    const total = indFilteredRows.length;
-    const bar = document.getElementById('indPaginationBar');
-    if (!bar) return;
-    if (total === 0) { bar.style.display = 'none'; return; }
-    bar.style.display = 'flex';
-    document.getElementById('indPaginationText').textContent = 'Showing ' + (start+1) + '–' + Math.min(end,total) + ' of ' + total;
-    document.getElementById('indPrevPage').disabled = indCurrentPage <= 1;
-    document.getElementById('indNextPage').disabled = indCurrentPage >= Math.ceil(total / IND_PAGE_SIZE);
-}
-
-function indGoToPage(n) {
-    const totalPages = Math.ceil(indFilteredRows.length / IND_PAGE_SIZE);
-    if (n < 1 || n > totalPages) return;
-    indCurrentPage = n;
-    showIndPage();
-}
-
-function indFillSameSlot() {
-    const visible = document.querySelectorAll('.ind-row:not(.hidden-by-filter):not(.hidden-by-page)');
-    if (visible.length === 0) return;
-    const first = visible[0];
-    const date  = first.querySelector('.date-inp')?.value || '';
-    const time  = first.querySelector('.time-inp')?.value || '';
-    const venue = first.querySelector('.venue-inp')?.value || '';
-    const type  = first.querySelector('.type-sel')?.value || 'Individual';
-    for (let i = 1; i < visible.length; i++) {
-        const row = visible[i];
-        const d = row.querySelector('.date-inp');  if (d)  d.value  = date;
-        const t = row.querySelector('.time-inp');  if (t)  t.value  = time;
-        const v = row.querySelector('.venue-inp'); if (v)  v.value  = venue;
-        const ty = row.querySelector('.type-sel'); if (ty) ty.value = type;
-    }
-}
-
-function confirmIndividual() {
-    const dates = document.querySelectorAll('[name^="ind_date"]');
-    let filled = 0;
-    dates.forEach(dateEl => {
-        const id = dateEl.name.match(/\[(\d+)\]/)[1];
-        const d  = dateEl.value;
-        const t  = document.querySelector(`[name="ind_time[${id}]"]`)?.value;
-        const v  = document.querySelector(`[name="ind_venue[${id}]"]`)?.value?.trim();
-        if (d && t && v) filled++;
-    });
-    if (filled === 0) { alert('Please fill in at least one applicant\'s date, time, and venue.'); return false; }
-    return confirm(`Schedule interviews for ${filled} applicant(s)?`);
 }
 
 document.addEventListener('DOMContentLoaded', function() {
     applyBatchFilters();
-    applyIndFilters();
+    toggleEmergencyReasonRequired();
+    applySchedFilters();
 });
 
-function openReschedule(id, name, date, time, venue, type) {
+function openReschedule(id, name, date, time, venue, type, status) {
     document.getElementById('rescheduleId').value   = id;
+    document.getElementById('rescheduleCurrentStatus').value = status || '';
     document.getElementById('rescheduleApplicantName').textContent = name;
     document.getElementById('rescheduleDate').value = date;
     document.getElementById('rescheduleTime').value = time;
     document.getElementById('rescheduleVenue').value = venue;
     document.getElementById('rescheduleType').value = type;
+    toggleEmergencyReasonRequired();
     const modal = document.getElementById('rescheduleModal');
     modal.style.display = 'flex';
     document.body.style.overflow = 'hidden';

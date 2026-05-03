@@ -957,7 +957,7 @@ $offered_tesda_label = $is_awaiting_decision && $offered_tesda_program
                 <?php endif; ?>
                 <?php if (!empty($application['instructions'])): ?>
                     <div class="exam-instructions">
-                        <button type="button" class="exam-instructions-toggle" onclick="toggleExamInstructions(this)">📘 Show exam instructions</button>
+                        <button type="button" class="exam-instructions-toggle" onclick="toggleExamInstructions(this)">Show exam instructions</button>
                         <div class="exam-instructions-content">
                             <?php echo nl2br(htmlspecialchars($application['instructions'])); ?>
                         </div>

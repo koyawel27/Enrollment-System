@@ -1,7 +1,7 @@
 <?php
 require_once dirname(__DIR__, 2) . '/config/paths.php';
 /**
- * Admin Applications - Full applications list with filters, search, bulk actions
+ * Admin Applications - Full applications list with filters, search
  * admin-applications.php
  */
 
@@ -91,7 +91,7 @@ $sql .= " ORDER BY
                 WHEN 'Documents Under Review' THEN 3
                 ELSE 4
             END ASC,
-            a.submitted_at ASC";
+            a.submitted_at DESC";
 
 $applications_result = mysqli_query($conn, $sql);
 $applications = [];
@@ -152,7 +152,99 @@ mysqli_close($conn);
         .main { padding:1.25rem 1.5rem; }
         @media(max-width:1280px) {
             .timeline-cell { display:none; }
-            thead th:nth-child(7) { display:none; }
+            thead th:nth-child(6) { display:none; } /* timeline column */
+        }
+
+        /* Smaller action buttons */
+        .btn-review, .btn-view {
+            display:inline-block;
+            padding:0.2rem 0.6rem;
+            font-size:0.7rem;
+            border-radius:6px;
+            text-decoration:none;
+            font-weight:600;
+            transition:0.15s ease;
+            line-height:1.4;
+        }
+        .btn-review {
+            background:var(--bpc-green);
+            color: white;
+            border:1px solid var(--bpc-green);
+        }
+        .btn-review:hover {
+            background:#005000;
+        }
+        .btn-view {
+            background:#6c757d;
+            color: white;
+            border:1px solid #cbd5e1;
+        }
+        .btn-view:hover {
+            background:#e0e7ff;
+        }
+
+        /* Improved filter bar */
+        .filter-bar {
+            background:#f9fafb;
+            border-radius:12px;
+            padding:1rem;
+            margin-bottom:1.5rem;
+            border:1px solid #e5e7eb;
+        }
+        .filter-row {
+            display:flex;
+            flex-wrap:wrap;
+            gap:0.75rem;
+            align-items:flex-end;
+            margin-top:0.75rem;
+        }
+        .filter-group {
+            flex: 0 1 auto;
+            min-width:140px;
+        }
+        .filter-group label {
+            display:block;
+            font-size:0.7rem;
+            font-weight:700;
+            text-transform:uppercase;
+            letter-spacing:0.05em;
+            color:#4b5563;
+            margin-bottom:0.2rem;
+        }
+        .filter-group select, .filter-group input {
+            width:100%;
+            padding:0.45rem 0.6rem;
+            border-radius:8px;
+            border:1px solid #d1d5db;
+            font-size:0.85rem;
+            background:#fff;
+        }
+        .btn-clear {
+            background:#fff;
+            border:1px solid #d1d5db;
+            padding:0.45rem 1rem;
+            border-radius:8px;
+            font-size:0.8rem;
+            text-decoration:none;
+            color:#374151;
+            display:inline-block;
+        }
+        .btn-clear:hover {
+            background:#f3f4f6;
+        }
+        .btn-apply {
+            background: none;
+            color: black;
+            border: 1px solid black;
+            padding:0.45rem 1.2rem;
+            border-radius:8px;
+            font-size:0.8rem;
+            font-weight:600;
+            cursor:pointer;
+        }
+        .btn-apply:hover {
+            background: grey;
+            color: white;
         }
     </style>
 </head>
@@ -166,25 +258,24 @@ mysqli_close($conn);
             <h1>All Applications</h1>
             <p>Search, filter, and manage all submitted applications.</p>
         </div>
-        <a href="admin-dashboard.php" class="btn-clear">← Back to Dashboard</a>
     </div>
 
     <?php if ($success): ?><div class="alert alert-success"><?php echo htmlspecialchars($success); ?></div><?php endif; ?>
     <?php if ($error):   ?><div class="alert alert-error"><?php echo htmlspecialchars($error); ?></div><?php endif; ?>
 
-    <!-- WORK QUEUE CHIPS + SEARCH -->
-    <div class="queue-card">
-        <div class="queue-title">Quick filters</div>
+    <!-- IMPROVED FILTER SECTION (no duplicate status dropdown) -->
+    <div class="filter-bar">
+        <div class="queue-title" style="margin-bottom:0.5rem;">Quick filters</div>
         <div class="queue-chips">
             <?php
             $track_param = $track_filter !== 'all' ? '&track=' . urlencode($track_filter) : '';
             $q_param     = $q !== '' ? '&q=' . urlencode($q) : '';
             $chips = [
                 ['label' => 'All Submitted',      'status' => 'all',                    'count' => $stats['total']],
-                ['label' => 'Re-submitted',        'status' => 'Documents Re-submitted', 'count' => $stats['resubmitted']],
-                ['label' => 'New',                 'status' => 'Application Submitted',  'count' => $stats['submitted']],
-                ['label' => 'Under Review',        'status' => 'Documents Under Review', 'count' => $stats['under_review']],
-                ['label' => 'Interview Completed', 'status' => 'Interview Completed',    'count' => $stats['interview_completed']],
+                ['label' => 'Re-submitted',       'status' => 'Documents Re-submitted', 'count' => $stats['resubmitted']],
+                ['label' => 'New',                'status' => 'Application Submitted',  'count' => $stats['submitted']],
+                ['label' => 'Under Review',       'status' => 'Documents Under Review', 'count' => $stats['under_review']],
+                ['label' => 'Interview Completed','status' => 'Interview Completed',    'count' => $stats['interview_completed']],
             ];
             foreach ($chips as $c) {
                 $is_active = ($filter === $c['status']);
@@ -197,28 +288,32 @@ mysqli_close($conn);
                 Final Decision <span class="chip-count">(<?php echo (int)$stats['interview_completed']; ?>)</span>
             </a>
         </div>
-        <form class="filter-form" method="GET" action="admin-applications.php" style="margin-top:1rem;">
+
+        <!-- Single filter row: track + search (live) + clear -->
+        <form method="GET" action="admin-applications.php" class="filter-row" id="applicationsFilterForm">
             <input type="hidden" name="status" value="<?php echo htmlspecialchars($filter); ?>">
-            <div class="search-box">
-                <label for="q">Search</label>
-                <input id="q" name="q" value="<?php echo htmlspecialchars($q); ?>" placeholder="Name, email, or reference #">
-            </div>
-            <div>
-                <label for="track-filter">Track:</label>
-                <select id="track-filter" name="track" onchange="this.form.submit()">
+            <div class="filter-group">
+                <label for="track-filter">Track</label>
+                <select id="track-filter" name="track">
                     <option value="all"  <?php echo $track_filter === 'all'   ? 'selected' : ''; ?>>All Tracks</option>
                     <option value="CHED" <?php echo $track_filter === 'CHED'  ? 'selected' : ''; ?>>CHED</option>
                     <option value="TESDA"<?php echo $track_filter === 'TESDA' ? 'selected' : ''; ?>>TESDA</option>
                 </select>
             </div>
-            <button type="submit" class="btn-compact primary">Apply</button>
+            <div class="filter-group">
+                <label for="q">Search</label>
+                <input id="q" name="q" value="<?php echo htmlspecialchars($q); ?>" placeholder="Name, email, or reference #">
+            </div>
             <?php if ($q !== '' || $track_filter !== 'all' || $filter !== 'all'): ?>
-                <a class="btn-clear" href="admin-applications.php?status=all">Clear</a>
+                <div>
+                    <label>&nbsp;</label>
+                    <a class="btn-clear" href="admin-applications.php?status=all">Clear all</a>
+                </div>
             <?php endif; ?>
         </form>
     </div>
 
-    <!-- APPLICATIONS TABLE -->
+    <!-- APPLICATIONS TABLE (bulk toolbar and checkboxes removed) -->
     <div class="table-card">
         <div class="table-header">
             <h2>
@@ -228,41 +323,9 @@ mysqli_close($conn);
                 <?php endif; ?>
             </h2>
             <div class="table-actions">
-                <form class="filter-form" method="GET" action="admin-applications.php">
-                    <input type="hidden" name="q"     value="<?php echo htmlspecialchars($q); ?>">
-                    <input type="hidden" name="track" value="<?php echo htmlspecialchars($track_filter); ?>">
-                    <label for="status-filter">Status:</label>
-                    <select id="status-filter" name="status" onchange="this.form.submit()">
-                        <option value="all"                         <?php echo $filter==='all'                         ?'selected':'';?>>All Submitted</option>
-                        <option value="Application Submitted"       <?php echo $filter==='Application Submitted'       ?'selected':'';?>>Newly Submitted</option>
-                        <option value="Documents Under Review"      <?php echo $filter==='Documents Under Review'      ?'selected':'';?>>Under Review</option>
-                        <option value="Documents Re-submitted"      <?php echo $filter==='Documents Re-submitted'      ?'selected':'';?>>Re-submitted</option>
-                        <option value="Documents Verified"          <?php echo $filter==='Documents Verified'          ?'selected':'';?>>Verified</option>
-                        <option value="Documents Rejected"          <?php echo $filter==='Documents Rejected'          ?'selected':'';?>>Rejected</option>
-                        <option value="Exam Scheduled"              <?php echo $filter==='Exam Scheduled'              ?'selected':'';?>>Exam Scheduled</option>
-                        <option value="Exam Completed"              <?php echo $filter==='Exam Completed'              ?'selected':'';?>>Exam Passed</option>
-                        <option value="Exam Failed"                 <?php echo $filter==='Exam Failed'                 ?'selected':'';?>>Exam Failed</option>
-                        <option value="Exam No Show"                <?php echo $filter==='Exam No Show'                ?'selected':'';?>>Exam No Show</option>
-                        <option value="Interview Scheduled"         <?php echo $filter==='Interview Scheduled'         ?'selected':'';?>>Interview Scheduled</option>
-                        <option value="Interview Completed"         <?php echo $filter==='Interview Completed'         ?'selected':'';?>>Interview Completed</option>
-                        <option value="Interview No Show"           <?php echo $filter==='Interview No Show'           ?'selected':'';?>>Interview No Show</option>
-                        <option value="Awaiting Applicant Decision" <?php echo $filter==='Awaiting Applicant Decision' ?'selected':'';?>>Awaiting Decision</option>
-                        <option value="Admitted/Enrolled"           <?php echo $filter==='Admitted/Enrolled'           ?'selected':'';?>>Admitted</option>
-                        <option value="Rejected"                    <?php echo $filter==='Rejected'                    ?'selected':'';?>>Rejected</option>
-                        <option value="Application Withdrawn"       <?php echo $filter==='Application Withdrawn'       ?'selected':'';?>>Withdrawn</option>
-                    </select>
-                </form>
-                <a class="btn-export" href="admin-export-applications.php?status=<?php echo urlencode($filter); ?>&track=<?php echo urlencode($track_filter); ?>&q=<?php echo urlencode($q); ?>">
+                <a class="btn-export" id="exportCsvBtn" href="admin-export-applications.php?status=<?php echo urlencode($filter); ?>&track=<?php echo urlencode($track_filter); ?>&q=<?php echo urlencode($q); ?>">
                     Export CSV
                 </a>
-            </div>
-        </div>
-
-        <!-- BULK TOOLBAR: notify only — bulk status update removed -->
-        <div class="table-toolbar" id="bulk-toolbar" style="display:none;">
-            <div class="table-toolbar-count"><span id="bulk-count">0</span> selected</div>
-            <div class="table-toolbar-actions">
-                <button type="button" class="btn-compact" onclick="openBulkNotifyModal()">Send notification</button>
             </div>
         </div>
 
@@ -270,10 +333,9 @@ mysqli_close($conn);
             <?php if (empty($applications)): ?>
                 <div class="no-data"><p>No applications found.</p></div>
             <?php else: ?>
-                <table>
+                <table id="applicationsTable">
                     <thead>
                         <tr>
-                            <th><input type="checkbox" id="select-all"></th>
                             <th>Applicant</th>
                             <th>Program</th>
                             <th>Track</th>
@@ -295,11 +357,14 @@ mysqli_close($conn);
                             $timeline_text  = $submitted_date . ($updated_date !== '—' ? ' • Updated ' . $updated_date : '');
                             $track          = $app['program_category'] ?? '—';
                             $show_review    = in_array($app['status'], $needs_review);
+                            $search_blob    = strtolower(
+                                ($app['last_name'] ?? '') . ' ' . ($app['first_name'] ?? '') . ' ' .
+                                ($app['email'] ?? '') . ' ' . ($app['reference_number'] ?? '')
+                            );
                         ?>
-                        <tr class="<?php echo $is_priority ? 'priority' : ''; ?>">
-                            <td onclick="event.stopPropagation();">
-                                <input type="checkbox" class="row-check" value="<?php echo (int)$app['id']; ?>">
-                            </td>
+                        <tr class="application-row <?php echo $is_priority ? 'priority' : ''; ?>"
+                            data-search="<?php echo htmlspecialchars($search_blob); ?>"
+                            data-track="<?php echo htmlspecialchars((string)($track ?? '')); ?>">
                             <td onclick="window.location='admin-application-detail.php?id=<?php echo $app['id']; ?>'" style="cursor:pointer;">
                                 <div class="applicant-name">
                                     <?php echo htmlspecialchars($app['last_name'].', '.$app['first_name']); ?>
@@ -343,92 +408,44 @@ mysqli_close($conn);
         </div>
     </div>
 </main>
-
-<!-- BULK NOTIFY MODAL — bulk status update intentionally removed -->
-<div id="modal-overlay" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,0.45);z-index:40;align-items:center;justify-content:center;">
-    <div style="background:#fff;border-radius:12px;max-width:480px;width:90%;padding:1.5rem;box-shadow:0 20px 45px rgba(15,23,42,0.35);">
-        <h2 style="font-size:1.1rem;margin-bottom:0.75rem;color:#111827;">Send Notification</h2>
-        <form id="bulk-form" method="POST" action="admin-bulk-notify.php">
-            <input type="hidden" name="ids" id="bulk-ids">
-            <div style="margin-bottom:1rem;">
-                <label for="bulk-subject" style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.25rem;color:#4b5563;">Subject</label>
-                <input id="bulk-subject" name="subject" style="width:100%;padding:0.45rem 0.6rem;border-radius:6px;border:1px solid #d1d5db;font-size:0.85rem;margin-bottom:0.6rem;">
-                <label for="bulk-template" style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.25rem;color:#4b5563;">Quick reason</label>
-                <select id="bulk-template" onchange="applyTemplate()" style="width:100%;padding:0.45rem 0.6rem;border-radius:6px;border:1px solid #d1d5db;font-size:0.85rem;margin-bottom:0.6rem;">
-                    <option value="">Select a quick reason (optional)</option>
-                    <option value="Blurry ID">Blurry ID</option>
-                    <option value="Missing document">Missing document</option>
-                    <option value="Incorrect information">Incorrect information</option>
-                </select>
-                <label for="bulk-message" style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.25rem;color:#4b5563;">Message</label>
-                <textarea id="bulk-message" name="message" rows="4" style="width:100%;padding:0.45rem 0.6rem;border-radius:6px;border:1px solid #d1d5db;font-size:0.85rem;resize:vertical;"></textarea>
-            </div>
-            <div style="display:flex;justify-content:flex-end;gap:0.5rem;margin-top:0.75rem;">
-                <button type="button" class="btn-compact" onclick="closeBulkModal()">Cancel</button>
-                <button type="submit" class="btn-compact primary">Send</button>
-            </div>
-        </form>
-    </div>
-</div>
-
+</body>
 <script>
-(function() {
-    const selectAll = document.getElementById('select-all');
-    const rowChecks = document.querySelectorAll('.row-check');
-    const toolbar   = document.getElementById('bulk-toolbar');
-    const countSpan = document.getElementById('bulk-count');
-    const overlay   = document.getElementById('modal-overlay');
-    const bulkIds   = document.getElementById('bulk-ids');
-
-    function getSelectedIds() {
-        const ids = [];
-        document.querySelectorAll('.row-check:checked').forEach(chk => ids.push(chk.value));
-        return ids;
-    }
-
-    function refreshToolbar() {
-        const ids   = getSelectedIds();
-        const count = ids.length;
-        if (countSpan) countSpan.textContent = count;
-        if (toolbar)   toolbar.style.display = count > 0 ? 'flex' : 'none';
-        if (selectAll) {
-            const total         = document.querySelectorAll('.row-check').length;
-            selectAll.checked       = count > 0 && count === total;
-            selectAll.indeterminate = count > 0 && count < total;
-        }
-    }
-
-    if (selectAll) {
-        selectAll.addEventListener('change', function() {
-            document.querySelectorAll('.row-check').forEach(chk => { chk.checked = this.checked; });
-            refreshToolbar();
-        });
-    }
-    rowChecks.forEach(chk => chk.addEventListener('change', refreshToolbar));
-
-    window.openBulkNotifyModal = function() {
-        const ids = getSelectedIds();
-        if (!ids.length) return;
-        bulkIds.value = ids.join(',');
-        overlay.style.display = 'flex';
-    };
-
-    window.closeBulkModal = function() {
-        overlay.style.display = 'none';
-    };
-
-    window.applyTemplate = function() {
-        const select  = document.getElementById('bulk-template');
-        const message = document.getElementById('bulk-message');
-        if (!select || !message || !select.value) return;
-        message.value = (message.value ? message.value + '\n\n' : '') + 'Reason: ' + select.value + '.';
-    };
-
-    overlay?.addEventListener('click', function(e) {
-        if (e.target === this) closeBulkModal();
+function applyApplicationsFilters() {
+    const q = (document.getElementById('q')?.value || '').trim().toLowerCase();
+    const track = (document.getElementById('track-filter')?.value || 'all').trim().toLowerCase();
+    const rows = document.querySelectorAll('#applicationsTable .application-row');
+    rows.forEach(row => {
+        const s = (row.getAttribute('data-search') || '').toLowerCase();
+        const t = (row.getAttribute('data-track') || '').toLowerCase();
+        const trackOk = (track === 'all') || (t === track);
+        const searchOk = !q || s.includes(q);
+        row.style.display = (trackOk && searchOk) ? '' : 'none';
     });
-})();
-</script>
 
+    // Keep Export CSV in sync with current live filters.
+    const status = (document.querySelector('#applicationsFilterForm input[name="status"]')?.value || 'all').trim();
+    const exportBtn = document.getElementById('exportCsvBtn');
+    if (exportBtn) {
+        const params = new URLSearchParams();
+        params.set('status', status);
+        params.set('track', track || 'all');
+        // Use raw input (not lowercased) for export query
+        const rawQ = (document.getElementById('q')?.value || '').trim();
+        params.set('q', rawQ);
+        exportBtn.href = 'admin-export-applications.php?' + params.toString();
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Prevent form submit; filtering is live on the client.
+    document.getElementById('applicationsFilterForm')?.addEventListener('submit', (e) => e.preventDefault());
+
+    // Live filter on type/change
+    document.getElementById('q')?.addEventListener('input', applyApplicationsFilters);
+    document.getElementById('track-filter')?.addEventListener('change', applyApplicationsFilters);
+
+    applyApplicationsFilters();
+});
+</script>
 </body>
 </html>

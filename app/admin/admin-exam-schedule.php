@@ -55,7 +55,7 @@ sort($programs_for_filter);
 $already_programs = array_values(array_unique(array_filter(array_column($already, 'first_choice'))));
 sort($already_programs);
 
-$default_instructions = "DO's:\n• Bring 2 valid IDs (government-issued).\n• Arrive at least 30 minutes before the exam.\n• Bring black ballpen and pencil.\n• Wear proper attire (no sleeveless, shorts, or slippers).\n\nDON'Ts:\n• Do not bring electronic devices (phones, smartwatches) unless specified.\n• Do not bring notes or reference materials.\n• No eating or drinking inside the exam room.";
+$default_instructions = "DO's:\n• Bring a printed screenshot of your scheduled exam along with a valid identification card bearing your name.\n• Arrive at least 30 minutes before the exam. Late arrivals may not be accommodated.\n• Prepare a Mongol #2 pencil for shading your answers.\n• Wear proper attire (no sleeveless, shorts, ripped jeans, or slippers).\n\nDON'Ts:\n• Do not bring electronic devices (phones, smartwatches) unless specified.\n• Do not bring notes or reference materials.\n• No eating or drinking inside the exam room.";
 
 mysqli_close($conn);
 ?>

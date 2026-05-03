@@ -1,5 +1,14 @@
-# Sensitive config
+# Sensitive / local-only config (never commit real credentials)
 config/mail_config.php
+config/db.php
+
+# Full MySQL dumps from phpMyAdmin — contain hashes, emails, operational data
+database/bpc_ienroll.sql
+
+# Env-style secrets if you add them later
+.env
+.env.*
+!.env.example
 
 # Student uploaded documents
 uploads/

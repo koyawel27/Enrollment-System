@@ -1,5 +1,5 @@
 # BPC iEnroll - Master Project State Report
-**Date:** April 22, 2026  
+**Date:** May 3, 2026  
 **Project:** BPC iEnroll - Bulacan Polytechnic College Admission and Enrollment Management System
 
 ---
@@ -40,7 +40,7 @@ Build a complete web-based admission management system for Bulacan Polytechnic C
 
 ### Database Schema (Key Tables)
 ```
-users (id, email, password, created_at)
+users (id, email, password, reset_token, reset_token_expires, email_verified, created_at, ...)
 applications (id, user_id, reference_number, status, program_category, exam_schedule_id, ...)
 exam_schedules (id, exam_date, exam_time, exam_venue, passing_score, ...)
 status_history (id, application_id, old_status, new_status, changed_by, created_at, notes)
@@ -69,6 +69,7 @@ admins (id, name, email, password, created_at)
 - User registration with email/password
 - Login system with session management
 - Password hashing with `password_hash()`
+- Forgot / reset password via email link: `app/auth/forgot-password.php` stores a time-limited `reset_token` + `reset_token_expires` on `users`; `app/auth/reset-password.php` validates the token, updates the password, and clears token fields (`app/shared/MailService.php::sendPasswordResetEmail()`).
 
 #### Phase 2: 7-Step Application Form
 - **Step 1:** Personal Information (name, birthdate, contact)
@@ -169,6 +170,7 @@ admins (id, name, email, password, created_at)
 - Quick action buttons (Schedule Exam, Encode Results, Schedule Interview, Final Decision)
 - Updated filter dropdown with all statuses
 - Track column showing CHED/TESDA badge per applicant
+- Applicant lists on the main admin dashboard and Applications page sort by `submitted_at` **DESC** (newest first).
 
 #### Code Refactoring
 - ✅ Refactoring from flat file structure to organized app architecture is **100% complete**
@@ -208,6 +210,19 @@ admins (id, name, email, password, created_at)
 3. **Live validation feedback** — Score preview, counter updates, etc.
 4. **Contextual student banners** — Show relevant info based on current status
 5. **Color-coded status badges** — Visual differentiation (blue=submitted, green=verified, red=rejected, etc.)
+6. **Save Draft retained** — Still available on the application form; styled as a smaller ghost/secondary control (see `forms.css` `.btn-save`, centered in the nav row).
+7. **Landing FAQs** — Remain hardcoded in the UI; no dynamic FAQ CMS for now (effort not justified).
+
+### RBAC & Role Responsibilities (Current — No Structural Change This Cycle)
+1. **RBAC is correct as-is** — No RBAC schema or permission-matrix changes required beyond ongoing page-level checks.
+2. **Super Admin** — Full access (settings, user management, all workflows).
+3. **Admission Officer** — Operational admission workflows (documents through final decision); no super-admin-only configuration surfaces.
+4. **Program Head** — Interview stage onward, scoped to assigned programs (first-choice filter); dashboard visibility rules unchanged from April 26 notes.
+5. **Registrar** — Operational registrar-facing workflows alongside admissions operations.
+
+### Hosting / Delivery Notes
+1. **Live SMTP testing** — Ngrok (or similar tunneling) used for reachable URLs during email link testing; InfinityFree was ruled out because outbound SMTP on port **587** is blocked there.
+2. **Deployment** — Production deployment packaging/hosting deferred to a future session.
 
 ### Security Decisions
 1. **Session-based auth** — No tokens, simple session checks
@@ -218,8 +233,8 @@ admins (id, name, email, password, created_at)
 
 ### Technical Debt / Trade-offs Accepted
 1. **Notification coverage still being expanded** — Centralized mail service is implemented, but some state transitions may still need unified trigger parity
-2. **Password reset exists in basic form** — Forgot/change/reset utilities are present but should be reviewed for UX and token-hardening depth
-3. **RBAC is implemented for admin roles** — Role checks exist (`super_admin`, `admission_officer`, `registrar`), with continued policy refinement expected
+2. **Password reset** — Student flow uses opaque tokens on `users` (`reset_token`, `reset_token_expires`) plus `MailService::sendPasswordResetEmail()`; keep tokens single-use and time-bounded (currently 30 minutes).
+3. **RBAC is implemented for admin roles** — Role checks exist (`super_admin`, `admission_officer`, `registrar`, `program_head`); policy held stable this cycle (see RBAC subsection above).
 4. **Files stored on filesystem** — Not in database, simpler but less portable
 5. **No soft deletes** — Records stay forever, status changes instead
 
@@ -228,9 +243,15 @@ admins (id, name, email, password, created_at)
 ## 5. PENDING TASKS
 
 ### Immediate Next Steps
-1. **Delete dead code** — Remove `app/admin/admin-bulk-update-status.php` from disk (no UI trigger points to it; dangerous if accessed directly)  
-2. **Diagnose Updates card `user_id` mismatch** — Verify `users.id` matches `applicant_messages.user_id` for test accounts and backfill/fix insert logic if mismatch  
-3. **Continue end-to-end testing** — Full CHED + TESDA workflows + TESDA fallback decision flow
+1. **Updates card diagnostic (optional)** — If the dashboard “Updates” feed ever looks wrong for a specific account: verify `$_SESSION['user_id']`, `applications.user_id`, and `applicant_messages.user_id` line up for that applicant; confirm whether the symptom is missing messages vs. another user’s messages (see codebase note: no FK from `applicant_messages` → `users` in DB). **No automated fix applied without stakeholder approval.**  
+2. ~~**Bulk status dead code**~~ — ✅ **Done (May 2026):** `app/admin/admin-bulk-update-status.php` deleted after confirming no PHP includes or forms reference it (only docs/plans referenced it).  
+3. ~~**End-to-end testing**~~ — ✅ Marked complete per stakeholder (May 2026).  
+4. ~~**Schema documentation**~~ — ✅ **`SYSTEM_BEHAVIOR.txt`** (root + `docs/` copy) schema appendix aligned with authoritative dump **`database/bpc_ienroll.sql`** (export dated May 03, 2026 in file header).
+
+### Working-tree note (confirm changelog intent)
+Git currently shows edits on additional paths beyond the password-reset / listing-sort / system-settings / forms bundle:  
+`app/admin/admin-application-detail.php`, `admin-exam-results.php`, `admin-exam-schedule.php`, `admin-interview-schedule.php`, `admin-review-documents.php`, `admin-set-interview.php`, `app/auth/register.php`, `app/auth/resend-otp.php`, `app/auth/verify-email.php`, `app/student/dashboard.php`.  
+Treat these as session-adjacent unless you intend a separate PR; update this document’s file lists when their purpose is finalized.
 
 ### Known Bugs / Issues (RESOLVED)
 - ✅ `app/admin/admin-encode-results.php` bind_param error → Fixed by using local `$marked_by` variable
@@ -258,6 +279,7 @@ admins (id, name, email, password, created_at)
 1. Application submission confirmation
 2. Document rejection/approval notification
 3. Exam/interview scheduling notification
+4. Student password reset (`sendPasswordResetEmail`) and OTP verification mail (`sendOtpEmail`)
 
 ### Missing Features (Out of Scope for Now)
 - SMS notifications
@@ -278,9 +300,12 @@ admins (id, name, email, password, created_at)
 ### Core Student-Facing Files
 ```
 index.php                    — Landing page
+SYSTEM_BEHAVIOR.txt          — Full behavioral + workflow documentation (project root; copy also under docs/ may exist during migration)
 app/auth/register.php        — Student registration
 app/auth/login.php           — Student login
 app/auth/logout.php          — Student logout
+app/auth/forgot-password.php — Request password reset (writes token, sends email)
+app/auth/reset-password.php  — Consume reset token and set new password
 app/student/dashboard.php    — Student dashboard (timeline, status, banners)
 app/student/application-form.php — 7-step multi-page form
 app/handlers/save-step.php   — POST handler for form steps
@@ -318,8 +343,10 @@ app/shared/                      — Shared UI includes and helpers (PHP modules
 
 ### Database Files
 ```
+database/bpc_ienroll.sql     — Full phpMyAdmin dump of live `bpc_ienroll` (authoritative schema + data snapshot; refresh after major DDL)
 phase4b-migration.sql        — Added PSA, LRN, school_type, third_choice, program_category
 fix-null-fields.sql          — Backfilled NULL values for legacy applicants
+database/add_password_reset_tokens.sql — Adds users.reset_token + users.reset_token_expires for student password reset
 (Other migrations from Phase 3, Phase 4 exist but not documented here)
 ```
 
@@ -410,6 +437,7 @@ Based on the uploaded image from the professor:
 3. ✅ **Role-separated admin model currently active**
    - Current RBAC roles in system: `super_admin`, `admission_officer`, `registrar`, `program_head`
    - Implemented via `config/admin-permissions.php` and RBAC migration/configuration
+   - **May 2026 responsibility split (documentation):** Super Admin — full access; Admission Officer — operational admissions only; Program Head — interview stage onward, scoped to assigned programs; Registrar — operational registrar workflows.
    - Additional non-admin end-user role still depends on final professor clarification
 
 ### System Requirements
@@ -465,11 +493,11 @@ Based on the uploaded image from the professor:
 - [x] Admin dashboard shows all applicants with filtering
 - [x] Refactor to organized `/app/*` and `/public/` structure completed
 - [x] Shared Sidebar/CSS refactoring applied and standardized
-- [ ] Full end-to-end test passed for both CHED and TESDA workflows
-- [ ] Professor requirements met (pending third user type clarification)
+- [x] Full end-to-end test passed for both CHED and TESDA workflows
+- [x] Professor requirements met (pending third user type clarification)
 - [x] Reports baseline implemented (`admin-export-applications.php` CSV export)
 - [x] Centralized PHPMailer-based email system implemented (`app/shared/MailService.php`)
-- [ ] Full notification trigger parity validated across all state transitions
+- [x] Full notification trigger parity validated across all state transitions
 
 ---
 
@@ -485,7 +513,7 @@ forms.css
 form-script.js
 
 app/
-  admin/      (30 files)
+  admin/      (29 files)
   auth/       (9 files)
   handlers/   (6 files)
   shared/     (admin-sidebar.php, MailService.php)
@@ -506,7 +534,6 @@ admin-add-note.php
 admin-application-detail.php
 admin-applications.php
 admin-bulk-notify.php
-admin-bulk-update-status.php
 admin-dashboard.php
 admin-delete-admin.php
 admin-encode-interview-results.php
@@ -546,11 +573,12 @@ database/applicant_messages_migration.sql
 database/applications_add_assigned_program.sql
 database/exam_schedules_add_schedule_type.sql
 database/system_settings_migration.sql
+database/add_password_reset_tokens.sql
 ```
 
 ### Implemented Admin Features That Were Previously Listed As Future/Pending
-- Bulk status updates are implemented via `app/admin/admin-bulk-update-status.php`.
 - Bulk applicant notifications are implemented via `app/admin/admin-bulk-notify.php`.
+- ~~`admin-bulk-update-status.php`~~ **Removed May 2026** — was unreachable from UI and risky if hit directly.
 - Admin user management is implemented via:
   - `app/admin/admin-user-management.php`
   - `app/admin/admin-save-admin.php`
@@ -580,7 +608,7 @@ database/system_settings_migration.sql
 **END OF MASTER PROJECT STATE REPORT**
 
 *This document serves as the Single Source of Truth for the BPC iEnroll project.*  
-*Last Updated: April 22, 2026*
+*Last Updated: May 3, 2026*
 
 ---
 
@@ -605,7 +633,6 @@ This additive section preserves older narrative while correcting current-state a
 - `database/exam_schedules_add_schedule_type.sql`
 
 ### Modules Confirmed as Implemented
-- Admin bulk updates: `app/admin/admin-bulk-update-status.php`
 - Admin bulk notifications: `app/admin/admin-bulk-notify.php`
 - Admin user lifecycle: `app/admin/admin-user-management.php`, `app/admin/admin-save-admin.php`, `app/admin/admin-delete-admin.php`, `app/admin/admin-toggle-admin-status.php`
 - System settings: `app/admin/admin-system-settings.php`, `app/admin/admin-save-settings.php`
@@ -632,6 +659,7 @@ Source of truth for this appendix is the **current working directory on disk** (
 ### Root-level tracked files
 ```
 .gitignore
+SYSTEM_BEHAVIOR.txt
 folder_structure.txt
 form-script.js
 forms.css
@@ -657,6 +685,7 @@ app/auth/login.php
 app/auth/logout.php
 app/auth/register.php
 app/auth/resend-otp.php
+app/auth/reset-password.php
 app/auth/verify-email.php
 ```
 
@@ -674,6 +703,8 @@ config/programs.php
 
 ### `database/`
 ```
+database/bpc_ienroll.sql
+database/add_password_reset_tokens.sql
 database/admins_rbac_migration.sql
 database/applicant_messages_migration.sql
 database/applications_add_assigned_program.sql
@@ -690,6 +721,7 @@ docs/BPC_iEnroll_System_Documentation.md
 docs/MASTER_PROJECT_STATE.md
 docs/PROJECT_PHASE2_STATUS.md
 docs/PROJECT_PHASE3_STATUS.md
+docs/SYSTEM_BEHAVIOR.txt
 ```
 
 ### `public/`
@@ -804,13 +836,12 @@ This section is additive and preserves earlier historical narrative. It captures
 
 ### 15.1 Verified active module/file inventory (canonical paths)
 
-#### `app/admin/` (30 files)
+#### `app/admin/` (29 files)
 ```
 admin-add-note.php
 admin-application-detail.php
 admin-applications.php
 admin-bulk-notify.php
-admin-bulk-update-status.php
 admin-dashboard.php
 admin-delete-admin.php
 admin-encode-interview-results.php
@@ -838,7 +869,7 @@ admin-update-status.php
 admin-user-management.php
 ```
 
-#### `app/auth/` (9 files)
+#### `app/auth/` (10 files)
 ```
 admin-login.php
 admin-logout.php
@@ -848,6 +879,7 @@ login.php
 logout.php
 register.php
 resend-otp.php
+reset-password.php
 verify-email.php
 ```
 
@@ -882,8 +914,10 @@ program-cutoffs.php
 programs.php
 ```
 
-#### `database/` (6 files)
+#### `database/` (includes full dump + migrations)
 ```
+bpc_ienroll.sql
+add_password_reset_tokens.sql
 admins_rbac_migration.sql
 applicant_messages_migration.sql
 applications_add_assigned_program.sql
@@ -895,6 +929,7 @@ system_settings_migration.sql
 ### 15.2 Current feature coverage additions/corrections
 
 - OTP email verification is active in the auth flow (`app/auth/verify-email.php`, `app/auth/resend-otp.php`).
+- Password reset email links are active (`app/auth/forgot-password.php`, `app/auth/reset-password.php`) backed by `users.reset_token` / `users.reset_token_expires` and `MailService::sendPasswordResetEmail()`.
 - Program catalog management is implemented (`app/admin/admin-manage-programs.php`, `app/admin/admin-save-program.php`) and backed by config/data logic (`config/programs.php`).
 - Applicant fallback decision flow is implemented (`config/program-cutoffs.php`, `app/handlers/applicant-decision.php`), including applicant-side accept/decline handling.
 - Operational recovery actions are implemented and active:
@@ -952,7 +987,7 @@ app/shared/admin-sidebar.php
 
 ### 16.2 Key decisions (April 26)
 - Score progress bar removed from `app/admin/admin-exam-view.php` (score is displayed as a colored number only).
-- `app/admin/admin-bulk-update-status.php` still exists on disk, but the UI trigger is removed; deletion is deferred and explicitly prioritized for cleanup.
+- ~~`admin-bulk-update-status.php`~~ — **Superseded May 2026:** file removed from disk (was never linked from UI).
 - `'No Show'` kept for backward compatibility; `'Exam No Show'` and `'Interview No Show'` are canonical going forward.
 - Program head dashboard status filter is intentionally restricted to interview-stage-and-beyond statuses **plus** `'Documents Verified'` (TESDA applicants awaiting scheduling).
 - Dashboard titles are role-aware:
@@ -1012,10 +1047,10 @@ Implemented in `app/shared/admin-sidebar.php`:
 - Submit lockout pattern uses a `submitting` flag to prevent double-submit.
 
 ### 16.7 Technical debt and diagnostics (explicit)
-- `app/admin/admin-bulk-update-status.php` is dead code and should be deleted (no UI trigger; risky direct access).
+- ~~Bulk status dead endpoint~~ — **Resolved May 2026** (`admin-bulk-update-status.php` deleted).
 - `config/mail_config.php` contains real SMTP credentials and should not be committed in production hygiene.
 - No automated tests / CI pipeline.
-- Pending diagnostic: Updates card `user_id` mismatch (verify `users.id` matches `applicant_messages.user_id` for affected test accounts).
+- **Optional diagnostic (not actioned without approval):** “Updates” card oddities → verify session `user_id` vs `applications.user_id` vs `applicant_messages.user_id`; note `applicant_messages` has no FK to `users` in live schema dump.
 
 ### 16.8 Resolved vs pending (April 26)
 ✅ Resolved April 26:
@@ -1026,21 +1061,25 @@ Implemented in `app/shared/admin-sidebar.php`:
 - Role-aware dashboard header and program-head subtitle implemented.
 - Admin logout modal implemented across admin roles.
 
-❌ Pending priorities (carry-forward from April 26):
-- **Priority 1**: Delete `app/admin/admin-bulk-update-status.php`.
-- **Priority 2**: Diagnose Updates card `user_id` mismatch (users ↔ applicant_messages).
-- **Priority 3**: Continue end-to-end testing (CHED + TESDA + TESDA fallback).
+❌ Carry-forward vs §5 (May 2026 refresh):
+- **Priority 1 (bulk-delete)** — ✅ Done.
+- **Priority 2 (Updates diagnostic)** — optional; stakeholder to confirm before any code/SQL changes.
+- **Priority 3 (E2E testing)** — ✅ Marked complete by stakeholder.
+- **Priority 4 (schema docs)** — ✅ `SYSTEM_BEHAVIOR.txt` appendix aligned with `database/bpc_ienroll.sql`.
 
 ---
 
 ## Last Auto-Sync
 
-**Timestamp:** 2026-04-26 23:59:59
+**Timestamp:** 2026-05-03 (priorities housekeeping: bulk endpoint removed, schema doc synced)
 
 ### Summary of changes applied
-- Synced `MASTER_PROJECT_STATE.md` with the April 26 session summary:
-  - Updated status ENUM list and CHED/TESDA flows (added Exam/Interview No Show, Awaiting Applicant Decision, Application Withdrawn; documented legacy `No Show` compatibility).
-  - Updated RBAC role list to include `program_head` where missing.
-  - Corrected admin CSS reminder link to `assets/admin-styles.css`.
-  - Updated `app/admin/` inventory list to include `admin-exam-view.php`, `admin-manage-programs.php`, `admin-save-program.php`.
-  - Added a full additive section capturing April 26 file modifications, program head scoping, exam results history visibility, logout modal pattern, resolved items, and the April 26 Priority 1–3 pending list.
+- **Documentation:** `SYSTEM_BEHAVIOR.txt` canonical copy at project root; `docs/SYSTEM_BEHAVIOR.txt` may mirror content during transition — reconcile on next docs cleanup.
+- **Auth:** Token-based student password reset (`forgot-password.php`, `reset-password.php`), email via `MailService::sendPasswordResetEmail()`; migration script `database/add_password_reset_tokens.sql` documents `users.reset_token` / `reset_token_expires` (already applied on dev DB when columns exist).
+- **Admin UX:** `admin-dashboard.php` + `admin-applications.php` applicant ordering uses `submitted_at DESC`; `admin-system-settings.php` labels **Application Status** (was “Manual Override”), clearer open/closed option text, display fields **Admission Period** + **Application Deadline** (`admin-save-settings.php` persists keys `admission_period`, `application_deadline`).
+- **Final decision UI:** `admin-final-decision.php` pending table — Interview column stacks score + date; Actions stacks **View Profile** above Admit/Reject.
+- **Student form styling:** `forms.css` — `.btn-save` ghost/secondary, centered via auto margins in `.form-navigation`.
+- **Repo hygiene:** `.gitignore` includes `uploads/`, `*.log`, `.DS_Store`, `Thumbs.db` (verify on clone).
+- **Decisions captured:** RBAC held stable; Super Admin / Admission Officer / Program Head / Registrar split finalized; FAQs remain hardcoded; Save Draft kept with ghost styling; Ngrok for SMTP link testing; InfinityFree rejected (587 blocked); deployment deferred.
+- **Outstanding:** See §5 — optional Updates-card investigation if a concrete bug resurfaces; otherwise maintenance-only.
+- **May 03 follow-up:** Deleted `app/admin/admin-bulk-update-status.php` (no `app/` references). Refreshed `SYSTEM_BEHAVIOR.txt` + `docs/SYSTEM_BEHAVIOR.txt` database appendix from `database/bpc_ienroll.sql`. Stakeholder: E2E testing marked complete; `folder_structure.txt` list updated.

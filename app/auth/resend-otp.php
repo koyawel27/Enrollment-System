@@ -22,7 +22,13 @@ $email   = $_SESSION['otp_email'];
 
 // ── Fetch current OTP state ────────────────────────────────
 $stmt = mysqli_prepare($conn,
-    "SELECT otp_expires_at FROM users
+    "SELECT otp_expires_at,
+            TIMESTAMPDIFF(
+                SECOND,
+                DATE_SUB(otp_expires_at, INTERVAL 10 MINUTE),
+                NOW()
+            ) AS seconds_since_generated
+     FROM users
      WHERE id = ? AND email_verified = 0"
 );
 mysqli_stmt_bind_param($stmt, 'i', $user_id);
@@ -35,12 +41,8 @@ if (!$row) {
     redirect('app/auth/verify-email.php');
 }
 
-// ── 60-second cooldown check ───────────────────────────────
-// OTP expires 10 minutes after generation.
-// If more than 9 minutes remain, the OTP was generated less than 60 seconds ago.
-$expires_ts    = strtotime($row['otp_expires_at'] ?? '0');
-$generated_ts  = $expires_ts - (10 * 60); // when it was generated
-$seconds_since = time() - $generated_ts;
+// ── 60-second cooldown check (DB clock) ────────────────────
+$seconds_since = (int)($row['seconds_since_generated'] ?? 99999);
 
 if ($seconds_since < 60) {
     $wait = 60 - $seconds_since;
@@ -50,12 +52,13 @@ if ($seconds_since < 60) {
 
 // ── Generate fresh OTP ─────────────────────────────────────
 $otp        = str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-$expires_at = date('Y-m-d H:i:s', strtotime('+10 minutes'));
 
 $upd = mysqli_prepare($conn,
-    "UPDATE users SET otp_code = ?, otp_expires_at = ? WHERE id = ?"
+    "UPDATE users
+     SET otp_code = ?, otp_expires_at = DATE_ADD(NOW(), INTERVAL 10 MINUTE)
+     WHERE id = ?"
 );
-mysqli_stmt_bind_param($upd, 'ssi', $otp, $expires_at, $user_id);
+mysqli_stmt_bind_param($upd, 'si', $otp, $user_id);
 mysqli_stmt_execute($upd);
 mysqli_stmt_close($upd);
 mysqli_close($conn);

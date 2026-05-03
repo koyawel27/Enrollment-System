@@ -308,6 +308,18 @@ if (isset($_SESSION['admin_error']))   { $error   = $_SESSION['admin_error'];   
         .score-exam      { background:#fff3cd; color:#856404; }
         .score-interview { background:#e3f2fd; color:#1565c0; }
         .score-none      { color:var(--text-gray); font-size:0.75rem; }
+        .interview-stack {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 0.3rem;
+        }
+        .interview-date-line {
+            font-size: 0.72rem;
+            font-weight: 600;
+            color: var(--text-gray);
+            line-height: 1.2;
+        }
 
         /* Remarks — clamp to 2 lines, tooltip on hover */
         .remarks-cell {
@@ -552,11 +564,17 @@ if (isset($_SESSION['admin_error']))   { $error   = $_SESSION['admin_error'];   
                             <?php endif; ?>
                         </td>
                         <td data-label="Interview">
-                            <?php if (!empty($a['interview_score'])): ?>
-                                <span class="score-pill score-interview"><?php echo (int)$a['interview_score']; ?>/100</span>
-                            <?php else: ?>
-                                <span class="score-none"><?php echo $a['interview_date'] ? date('M d', strtotime($a['interview_date'])) : '—'; ?></span>
-                            <?php endif; ?>
+                            <div class="interview-stack">
+                                <?php if (!empty($a['interview_score'])): ?>
+                                    <span class="score-pill score-interview"><?php echo (int)$a['interview_score']; ?>/100</span>
+                                <?php endif; ?>
+                                <?php if (!empty($a['interview_date'])): ?>
+                                    <span class="interview-date-line"><?php echo date('M d, Y', strtotime($a['interview_date'])); ?></span>
+                                <?php endif; ?>
+                                <?php if (empty($a['interview_score']) && empty($a['interview_date'])): ?>
+                                    <span class="score-none">—</span>
+                                <?php endif; ?>
+                            </div>
                         </td>
                         <td data-label="Remarks">
                             <?php if (!empty($a['interview_remarks'])): ?>
@@ -568,31 +586,38 @@ if (isset($_SESSION['admin_error']))   { $error   = $_SESSION['admin_error'];   
                             <?php endif; ?>
                         </td>
                         <td data-label="Actions">
-                            <div class="decision-btns">
-                                <form method="POST" action="admin-set-final-decision.php" class="decision-form" data-decision="admit" style="flex:1;min-width:0;">
-                                    <input type="hidden" name="app_id" value="<?php echo (int)$a['id']; ?>">
-                                    <input type="hidden" name="decision" value="admit">
-                                    <button type="submit" class="btn-admit"
-                                        data-name="<?php echo htmlspecialchars($a['first_name'].' '.$a['last_name']); ?>"
-                                        data-ref="<?php echo htmlspecialchars($a['reference_number']); ?>"
-                                        data-program="<?php echo htmlspecialchars($prog_label); ?>"
-                                        data-exam="<?php echo (int)$a['exam_score']; ?>"
-                                        data-interview="<?php echo (int)$a['interview_score']; ?>"
-                                        style="width:100%;">
-                                        Admit
-                                    </button>
-                                </form>
-                                <form method="POST" action="admin-set-final-decision.php" class="decision-form" data-decision="reject" style="flex:1;min-width:0;">
-                                    <input type="hidden" name="app_id" value="<?php echo (int)$a['id']; ?>">
-                                    <input type="hidden" name="decision" value="reject">
-                                    <button type="submit" class="btn-reject-d"
-                                        data-name="<?php echo htmlspecialchars($a['first_name'].' '.$a['last_name']); ?>"
-                                        data-ref="<?php echo htmlspecialchars($a['reference_number']); ?>"
-                                        data-program="<?php echo htmlspecialchars($prog_label); ?>"
-                                        style="width:100%;">
-                                        Reject
-                                    </button>
-                                </form>
+                            <div style="display:flex;flex-direction:column;gap:0.35rem;">
+                                <a href="admin-application-detail.php?id=<?php echo (int)$a['id']; ?>"
+                                class="btn-view"
+                                style="text-align:center;padding:0.3rem 0.4rem;font-size:0.72rem;font-weight:700;border-radius:6px;text-decoration:none;display:block;">
+                                    View Profile
+                                </a>
+                                <div class="decision-btns">
+                                    <form method="POST" action="admin-set-final-decision.php" class="decision-form" data-decision="admit" style="flex:1;min-width:0;">
+                                        <input type="hidden" name="app_id" value="<?php echo (int)$a['id']; ?>">
+                                        <input type="hidden" name="decision" value="admit">
+                                        <button type="submit" class="btn-admit"
+                                            data-name="<?php echo htmlspecialchars($a['first_name'].' '.$a['last_name']); ?>"
+                                            data-ref="<?php echo htmlspecialchars($a['reference_number']); ?>"
+                                            data-program="<?php echo htmlspecialchars($prog_label); ?>"
+                                            data-exam="<?php echo (int)$a['exam_score']; ?>"
+                                            data-interview="<?php echo (int)$a['interview_score']; ?>"
+                                            style="width:100%;">
+                                            Admit
+                                        </button>
+                                    </form>
+                                    <form method="POST" action="admin-set-final-decision.php" class="decision-form" data-decision="reject" style="flex:1;min-width:0;">
+                                        <input type="hidden" name="app_id" value="<?php echo (int)$a['id']; ?>">
+                                        <input type="hidden" name="decision" value="reject">
+                                        <button type="submit" class="btn-reject-d"
+                                            data-name="<?php echo htmlspecialchars($a['first_name'].' '.$a['last_name']); ?>"
+                                            data-ref="<?php echo htmlspecialchars($a['reference_number']); ?>"
+                                            data-program="<?php echo htmlspecialchars($prog_label); ?>"
+                                            style="width:100%;">
+                                            Reject
+                                        </button>
+                                    </form>
+                                </div>
                             </div>
                         </td>
                     </tr>
@@ -667,8 +692,8 @@ if (isset($_SESSION['admin_error']))   { $error   = $_SESSION['admin_error'];   
         <div class="modal-header" id="modalHeader">Confirm Decision</div>
         <div class="modal-body" id="modalBody"></div>
         <div class="modal-footer">
-            <button class="btn-cancel" style="background:#e9ecef; border:none; padding:0.4rem 1rem; border-radius:6px;">Cancel</button>
-            <button class="btn-confirm" style="background:var(--bpc-green); color:white; border:none; padding:0.4rem 1rem; border-radius:6px;">Confirm</button>
+            <button class="btn-cancel" style="background:#e9ecef; border:none; padding:0.4rem 1rem; border-radius:6px; hover:background:#e9ecef; cursor:pointer;">Cancel</button>
+            <button class="btn-confirm" style="background:var(--bpc-green); color:white; border:none; padding:0.4rem 1rem; border-radius:6px; hover:background:var(--bpc-green-dark); cursor:pointer;">Confirm</button>
         </div>
     </div>
 </div>

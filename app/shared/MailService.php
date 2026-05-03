@@ -49,6 +49,35 @@ class MailService
               . "This code expires in 10 minutes.\n\n" . self::FOOTER_TEXT;
         return $this->sendEmail($to, 'Applicant', $subject, $html, $text);
     }
+    // ── Password Reset ────────────────────────────────────────
+
+    public function sendPasswordResetEmail(string $to, string $name, string $resetLink): bool
+    {
+        $subject = 'BPC iEnroll: Password Reset Request';
+        $html = $this->buildHtmlTemplate(
+            $name,
+            'Password Reset Request',
+            "We received a request to reset your BPC iEnroll account password.<br><br>"
+          . "Click the button below to set a new password. "
+          . "This link expires in <strong>30 minutes</strong>.<br><br>"
+          . "<div style=\"text-align:center;margin:24px 0;\">"
+          . "<a href=\"{$this->e($resetLink)}\" "
+          . "style=\"background:#006400;color:#ffffff;padding:12px 28px;"
+          . "border-radius:6px;text-decoration:none;font-weight:700;"
+          . "font-size:15px;display:inline-block;\">Reset My Password</a></div>"
+          . "If the button doesn't work, copy and paste this link into your browser:<br>"
+          . "<span style=\"font-size:12px;color:#666;word-break:break-all;\">{$this->e($resetLink)}</span><br><br>"
+          . "If you did not request a password reset, you can safely ignore this email. "
+          . "Your password will not change.",
+            self::COLOR_GRAY
+        );
+        $text = "Hello {$name},\n\n"
+              . "Reset your BPC iEnroll password using this link:\n{$resetLink}\n\n"
+              . "This link expires in 30 minutes.\n\n"
+              . "If you did not request this, ignore this email.\n\n"
+              . self::FOOTER_TEXT;
+        return $this->sendEmail($to, $name, $subject, $html, $text);
+    }
 
     // ── Student emails ────────────────────────────────────────
 

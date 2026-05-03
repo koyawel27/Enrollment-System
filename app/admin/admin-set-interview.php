@@ -49,8 +49,7 @@ if ($mode === 'batch') {
     $batch_date  = trim($_POST['batch_date']  ?? '');
     $batch_time  = trim($_POST['batch_time']  ?? '');
     $batch_venue = trim($_POST['batch_venue'] ?? '');
-    $batch_type  = in_array($_POST['batch_type'] ?? '', ['Batch','Individual'])
-                   ? $_POST['batch_type'] : 'Batch';
+    $batch_type  = 'Batch';
     $batch_notes = trim($_POST['batch_notes'] ?? '');
     $ids         = $_POST['applicant_ids'] ?? [];
 
@@ -160,138 +159,67 @@ if ($mode === 'batch') {
 //  INDIVIDUAL MODE
 // ══════════════════════════════════════════════════════════
 } elseif ($mode === 'individual') {
-
-    $ind_dates  = $_POST['ind_date']  ?? [];
-    $ind_times  = $_POST['ind_time']  ?? [];
-    $ind_venues = $_POST['ind_venue'] ?? [];
-    $ind_types  = $_POST['ind_type']  ?? [];
-
-    if (empty($ind_dates)) {
-        $_SESSION['admin_error'] = 'No schedule data received. Please try again.';
-        redirect('app/admin/admin-interview-schedule.php');
-    }
-
-    $upd = mysqli_prepare($conn,
-        "UPDATE applications SET
-            status           = 'Interview Scheduled',
-            interview_date   = ?,
-            interview_time   = ?,
-            interview_venue  = ?,
-            interview_type   = ?,
-            updated_at       = NOW()
-         WHERE id = ?
-           AND (
-               (program_category = 'CHED' AND status = 'Exam Completed')
-               OR
-               (program_category = 'TESDA' AND status = 'Documents Verified')
-               OR
-               (program_category IS NULL AND status = 'Exam Completed')
-           )"
-    );
-
-    $log = mysqli_prepare($conn,
-        "INSERT INTO status_history
-            (application_id, old_status, new_status, changed_by, notes)
-         VALUES (?, 'Exam Completed / Documents Verified', 'Interview Scheduled', ?, ?)"
-    );
-
-    $ind_ids = array_map('intval', array_keys($ind_dates));
-    $ind_ids = array_filter($ind_ids, fn($id) => $id > 0);
-    $user_ids = [];
-    if (!empty($ind_ids)) {
-        $id_list = implode(',', $ind_ids);
-        $ur = mysqli_query($conn, "SELECT id, user_id FROM applications WHERE id IN ($id_list)");
-        if ($ur) {
-            while ($row = mysqli_fetch_assoc($ur)) $user_ids[(int)$row['id']] = (int)$row['user_id'];
-        }
-    }
-    $mailFetch = mysqli_prepare($conn,
-        "SELECT u.email, a.first_name, a.last_name, a.reference_number
-         FROM applications a
-         JOIN users u ON a.user_id = u.id
-         WHERE a.id = ?
-         LIMIT 1"
-    );
-
-    foreach ($ind_dates as $app_id => $date) {
-        $app_id = (int)$app_id;
-        if ($app_id <= 0) continue;
-
-        $date  = trim($date);
-        $time  = trim($ind_times[$app_id]  ?? '');
-        $venue = trim($ind_venues[$app_id] ?? '');
-        $type  = in_array($ind_types[$app_id] ?? '', ['Batch','Individual'])
-                 ? $ind_types[$app_id] : 'Individual';
-
-        // Skip rows not fully filled
-        if (empty($date) || empty($time) || empty($venue)) {
-            $skipped++;
-            continue;
-        }
-
-        mysqli_stmt_bind_param($upd, 'ssssi',
-            $date, $time, $venue, $type, $app_id
-        );
-        mysqli_stmt_execute($upd);
-
-        if (mysqli_stmt_affected_rows($upd) > 0) {
-            $scheduled++;
-            $note = "Interview scheduled (Individual): {$date} at {$time}, {$venue}";
-            mysqli_stmt_bind_param($log, 'iss', $app_id, $admin_name, $note);
-            mysqli_stmt_execute($log);
-            $uid = $user_ids[$app_id] ?? 0;
-            if ($uid) {
-                $date_fmt = date('F d, Y', strtotime($date));
-                $time_fmt = date('g:i A', strtotime($time));
-                add_applicant_message($conn, $uid, 'interview_scheduled', 'Your interview has been scheduled', "Date: {$date_fmt} at {$time_fmt}. Venue: {$venue}. Type: {$type}.");
-            }
-
-            mysqli_stmt_bind_param($mailFetch, 'i', $app_id);
-            mysqli_stmt_execute($mailFetch);
-            $mailRow = mysqli_fetch_assoc(mysqli_stmt_get_result($mailFetch));
-            if ($mailRow && !empty($mailRow['email'])) {
-                $email = trim((string)$mailRow['email']);
-                $fullName = trim((string)(($mailRow['first_name'] ?? '') . ' ' . ($mailRow['last_name'] ?? '')));
-                $referenceNumber = (string)($mailRow['reference_number'] ?? '');
-                try {
-                    $mailService->sendInterviewScheduledEmail($email, $fullName, $referenceNumber, $date_fmt, $time_fmt, $venue);
-                } catch (Exception $e) {
-                    error_log('BPC iEnroll mail error: ' . $e->getMessage());
-                }
-            }
-        } else {
-            $skipped++;
-        }
-    }
-
-    mysqli_stmt_close($mailFetch);
-    mysqli_stmt_close($upd);
-    mysqli_stmt_close($log);
+    $_SESSION['admin_error'] = 'Individual bulk scheduling is disabled. Use batch scheduling, then use reschedule for emergency one-on-one cases.';
+    redirect('app/admin/admin-interview-schedule.php');
 
 } elseif ($mode === 'reschedule') {
 
     $app_id           = (int)($_POST['applicant_id'] ?? 0);
+    $current_status   = trim($_POST['current_status'] ?? '');
     $reschedule_date  = trim($_POST['reschedule_date'] ?? '');
     $reschedule_time  = trim($_POST['reschedule_time'] ?? '');
     $reschedule_venue = trim($_POST['reschedule_venue'] ?? '');
     $reschedule_type  = trim($_POST['reschedule_type'] ?? 'Individual');
-    $admin_name       = $_SESSION['admin_name'];
+    $reschedule_reason = trim($_POST['reschedule_reason'] ?? '');
+    $admin_name        = $_SESSION['admin_name'];
 
     if ($app_id <= 0 || empty($reschedule_date) || empty($reschedule_time) || empty($reschedule_venue)) {
         $_SESSION['admin_error'] = 'All reschedule fields are required.';
         redirect('app/admin/admin-interview-schedule.php');
     }
 
+    // Server-side policy guard: emergency reschedule is only for Interview No Show appeals.
+    if ($current_status !== 'Interview No Show') {
+        $statusCheck = mysqli_prepare($conn, 'SELECT status FROM applications WHERE id = ? LIMIT 1');
+        if ($statusCheck) {
+            mysqli_stmt_bind_param($statusCheck, 'i', $app_id);
+            mysqli_stmt_execute($statusCheck);
+            $statusRow = mysqli_fetch_assoc(mysqli_stmt_get_result($statusCheck));
+            mysqli_stmt_close($statusCheck);
+            $current_status = (string)($statusRow['status'] ?? '');
+        }
+    }
+
+    if ($current_status !== 'Interview No Show') {
+        $_SESSION['admin_error'] = 'Only applicants marked as Interview No Show can be rescheduled through this appeal flow.';
+        redirect('app/admin/admin-interview-schedule.php');
+    }
+
+    if (!in_array($reschedule_type, ['Batch', 'Individual'], true)) {
+        $_SESSION['admin_error'] = 'Invalid interview type selected.';
+        redirect('app/admin/admin-interview-schedule.php');
+    }
+
+    if ($reschedule_type === 'Individual' && mb_strlen($reschedule_reason) < 8) {
+        $_SESSION['admin_error'] = 'Emergency reason is required for Individual reschedule (at least 8 characters).';
+        redirect('app/admin/admin-interview-schedule.php');
+    }
+
+    $reschedule_note = ($reschedule_type === 'Individual')
+        ? ('Emergency individual reschedule reason: ' . $reschedule_reason)
+        : '';
+
     $stmt = mysqli_prepare($conn,
         'UPDATE applications
          SET interview_date = ?, interview_time = ?,
              interview_venue = ?, interview_type = ?,
+             interview_notes = IF(? <> "", ?, interview_notes),
              status = "Interview Scheduled", updated_at = NOW()
          WHERE id = ?'
     );
-    mysqli_stmt_bind_param($stmt, 'ssssi',
+    mysqli_stmt_bind_param($stmt, 'ssssssi',
         $reschedule_date, $reschedule_time,
-        $reschedule_venue, $reschedule_type, $app_id
+        $reschedule_venue, $reschedule_type, $reschedule_note, $reschedule_note, $app_id
     );
     $ok = mysqli_stmt_execute($stmt);
     mysqli_stmt_close($stmt);
@@ -303,7 +231,10 @@ if ($mode === 'batch') {
                 (application_id, old_status, new_status, changed_by, notes)
              VALUES (?, "Interview Scheduled", "Interview Scheduled", ?, ?)'
         );
-        $notes = 'Interview rescheduled to ' . $reschedule_date . ' ' . $reschedule_time . ' at ' . $reschedule_venue;
+        $notes = 'Interview no-show appeal approved. Rescheduled to ' . $reschedule_date . ' ' . $reschedule_time . ' at ' . $reschedule_venue . ' (' . $reschedule_type . ').';
+        if ($reschedule_type === 'Individual') {
+            $notes .= ' Emergency reason: ' . $reschedule_reason;
+        }
         mysqli_stmt_bind_param($log, 'iss', $app_id, $admin_name, $notes);
         mysqli_stmt_execute($log);
         mysqli_stmt_close($log);

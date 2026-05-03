@@ -120,22 +120,22 @@ $sql = "SELECT a.id, a.reference_number, a.first_name, a.last_name,
         JOIN users u ON a.user_id = u.id
         WHERE {$base_status_filter}";
 
-if ($filter !== 'all') {
-    $filter_esc = mysqli_real_escape_string($conn, $filter);
-    $sql .= " AND a.status = '$filter_esc'";
-}
-if ($track_filter !== 'all') {
-    $track_esc = mysqli_real_escape_string($conn, $track_filter);
-    $sql .= " AND a.program_category = '$track_esc'";
-}
-if ($q !== '') {
-    $q_esc = mysqli_real_escape_string($conn, $q);
-    $like = '%' . $q_esc . '%';
-    $sql .= " AND (a.reference_number LIKE '$like'
-                OR a.first_name LIKE '$like'
-                OR a.last_name LIKE '$like'
-                OR u.email LIKE '$like')";
-}
+    if ($filter !== 'all') {
+        $filter_esc = mysqli_real_escape_string($conn, $filter);
+        $sql .= " AND a.status = '$filter_esc'";
+    }
+    if ($track_filter !== 'all') {
+        $track_esc = mysqli_real_escape_string($conn, $track_filter);
+        $sql .= " AND a.program_category = '$track_esc'";
+    }
+    if ($q !== '') {
+        $q_esc = mysqli_real_escape_string($conn, $q);
+        $like = '%' . $q_esc . '%';
+        $sql .= " AND (a.reference_number LIKE '$like'
+                    OR a.first_name LIKE '$like'
+                    OR a.last_name LIKE '$like'
+                    OR u.email LIKE '$like')";
+    }
 
 // Append department filter for program heads
 $sql .= $head_filter;
@@ -148,7 +148,7 @@ $sql .= " ORDER BY
                 WHEN 'Interview Scheduled'    THEN 4
                 ELSE 5
             END ASC,
-            a.submitted_at ASC
+            a.submitted_at DESC
           LIMIT 15";
 
 $applications = [];
@@ -202,10 +202,10 @@ mysqli_close($conn);
         .main { padding:1.25rem 1.5rem; }
         .page-header { margin-bottom:1.5rem; }
 
-        /* KPI RIBBON */
+        /* ─────────── KPI RIBBON ─────────── */
         .kpi-row {
             display:grid;
-            grid-template-columns:repeat(auto-fit, minmax(190px, 1fr));
+            grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));
             gap:1rem;
             margin-bottom:1.5rem;
         }
@@ -218,7 +218,12 @@ mysqli_close($conn);
             display:flex;
             flex-direction:column;
             justify-content:space-between;
-            min-height:82px;
+            min-height:92px;
+            transition:transform 0.15s ease, box-shadow 0.15s ease;
+        }
+        .kpi-card:hover {
+            transform:translateY(-1px);
+            box-shadow:0 4px 14px rgba(0,0,0,0.08);
         }
         .kpi-label {
             font-size:0.78rem;
@@ -232,9 +237,33 @@ mysqli_close($conn);
             font-size:1.4rem;
             font-weight:900;
             color:var(--bpc-green-dark);
+            line-height:1.1;
         }
+
+        /* CHED / TESDA split pills inside KPI cards - REMOVED from Total & Admitted */
+        .kpi-split {
+            display:flex;
+            gap:0.4rem;
+            margin-top:0.45rem;
+            flex-wrap:wrap;
+        }
+        .split-pill {
+            font-size:0.7rem;
+            font-weight:700;
+            padding:0.18rem 0.55rem;
+            border-radius:999px;
+            letter-spacing:0.02em;
+            display:inline-flex;
+            align-items:center;
+            gap:0.25rem;
+            line-height:1;
+        }
+        .split-pill strong { font-weight:900; }
+        .split-ched  { background:#e3f2fd; color:#0d47a1; }
+        .split-tesda { background:#fff3e0; color:#e65100; }
+
         .kpi-footer {
-            margin-top:0.25rem;
+            margin-top:0.4rem;
             font-size:0.75rem;
             color:var(--text-gray);
             display:flex;
@@ -249,29 +278,119 @@ mysqli_close($conn);
         }
         .kpi-link:hover { text-decoration:underline; }
 
-        details.metrics { margin-top:0.9rem; border-top:1px solid var(--border-color); padding-top:0.9rem; }
-        details.metrics summary { cursor:pointer; list-style:none; font-weight:800; font-size:0.85rem; color:var(--text-dark); }
+        /* ─────────── METRICS DROPDOWN ─────────── */
+        details.metrics {
+            margin-top:0.9rem;
+            border-top:1px solid var(--border-color);
+            padding-top:0.9rem;
+        }
+        details.metrics summary {
+            cursor:pointer;
+            list-style:none;
+            font-weight:800;
+            font-size:0.85rem;
+            color:var(--text-dark);
+            display:flex;
+            align-items:center;
+            gap:0.5rem;
+        }
         details.metrics summary::-webkit-details-marker { display:none; }
-        .metrics-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:0.75rem; margin-top:0.85rem; }
-        .metric { border:1px solid var(--border-color); border-radius:10px; padding:0.85rem 1rem; background:#fafafa; }
-        .metric .num { font-size:1.25rem; font-weight:900; line-height:1; }
-        .metric .lbl { font-size:0.78rem; color:var(--text-gray); margin-top:0.25rem; font-weight:700; }
+        details.metrics summary::before {
+            content:"▸";
+            font-size:0.75rem;
+            color:var(--text-gray);
+            transition:transform 0.2s;
+        }
+        details.metrics[open] summary::before { transform:rotate(90deg); }
 
-        /* QUICK ACTIONS */
-        .quick-actions { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:1rem; margin-bottom:1.5rem; }
-        .action-btn { display:flex; align-items:center; gap:0.75rem; padding:1rem 1.25rem; background:var(--white); border:2px solid var(--border-color); border-radius:10px; text-decoration:none; color:var(--text-dark); font-weight:600; font-size:0.875rem; transition:all 0.2s; }
-        .action-btn:hover { border-color:var(--bpc-green); background:#f0fdf4; }
-        .action-btn svg { width:20px; height:20px; flex-shrink:0; }
+        .metrics-group { margin-top:1rem; }
+        .metrics-group:first-of-type { margin-top:0.6rem; }
+        .metrics-group-label {
+            font-size:0.72rem;
+            font-weight:800;
+            color:var(--text-gray);
+            text-transform:uppercase;
+            letter-spacing:0.08em;
+            margin-bottom:0.5rem;
+        }
+        .metrics-grid {
+            display:grid;
+            grid-template-columns:repeat(auto-fit, minmax(160px, 1fr));
+            gap:0.75rem;
+        }
+        .metric {
+            border:1px solid var(--border-color);
+            border-radius:10px;
+            padding:0.85rem 1rem;
+            background:#fafafa;
+        }
+        .metric .num {
+            font-size:1.25rem;
+            font-weight:900;
+            line-height:1;
+        }
+        .metric .lbl {
+            font-size:0.78rem;
+            color:var(--text-gray);
+            margin-top:0.25rem;
+            font-weight:700;
+        }
+        .metric-sub {
+            font-size:0.72rem;
+            color:var(--text-gray);
+            margin-top:0.25rem;
+        }
+        .metric.outcome-good { border-left:3px solid #198754; }
+        .metric.outcome-bad  { border-left:3px solid #dc3545; }
 
-        /* Program head scope banner */
+        /* ─────────── QUICK ACTIONS ─────────── */
+        .quick-actions {
+            display:grid;
+            grid-template-columns:repeat(auto-fit, minmax(200px,1fr));
+            gap:1rem;
+            margin-bottom:1.5rem;
+        }
+        .action-btn {
+            display:flex;
+            align-items:center;
+            gap:0.75rem;
+            padding:1rem 1.25rem;
+            background:var(--white);
+            border:2px solid var(--border-color);
+            border-radius:10px;
+            text-decoration:none;
+            color:var(--text-dark);
+            font-weight:600;
+            font-size:0.875rem;
+            transition:all 0.2s;
+        }
+        .action-btn:hover {
+            border-color:var(--bpc-green);
+            background:#f0fdf4;
+        }
+        .action-btn svg {
+            width:20px;
+            height:20px;
+            flex-shrink:0;
+        }
+
+        /* ─────────── WORK QUEUE CHIPS ─────────── */
+        .chip.priority-chip {
+            background:#fef2f2;
+            border-color:#fca5a5;
+            color:#991b1b;
+        }
+        .chip.priority-chip .chip-count { color:#7f1d1d; }
+
+        /* ─────────── PROGRAM HEAD SCOPE BANNER ─────────── */
         .scope-banner {
-            background:#f3e5f5;
-            border:1px solid #ce93d8;
+            background:#e8f5e9;
+            border:1px solid #a5d6a7;
             border-radius:8px;
             padding:0.75rem 1.25rem;
             margin-bottom:1.25rem;
             font-size:0.875rem;
-            color:#4a148c;
+            color:#1b5e20;
             display:flex;
             align-items:center;
             gap:0.75rem;
@@ -280,6 +399,11 @@ mysqli_close($conn);
 
         @media(max-width:768px) {
             .kpi-row { grid-template-columns:repeat(2,1fr); }
+            .kpi-split { gap:0.3rem; }
+            .split-pill { font-size:0.65rem; padding:0.15rem 0.45rem; }
+        }
+        @media(max-width:480px) {
+            .kpi-row { grid-template-columns:1fr; }
         }
     </style>
 </head>
@@ -320,7 +444,7 @@ mysqli_close($conn);
         Exam scheduling and document review are handled by the Admission Officer.
     </div>
 
-    <!-- PROGRAM HEAD KPI ROW -->
+    <!-- PROGRAM HEAD KPI ROW (split-pill removed from Admitted card) -->
     <div class="kpi-row">
         <div class="kpi-card">
             <div class="kpi-label">Ready for Interview</div>
@@ -341,6 +465,7 @@ mysqli_close($conn);
         <div class="kpi-card">
             <div class="kpi-label">Admitted</div>
             <div class="kpi-value"><?php echo (int)$stats['admitted']; ?></div>
+            <!-- split-pill REMOVED -->
             <div class="kpi-footer">
                 <span>From your programs</span>
             </div>
@@ -383,21 +508,24 @@ mysqli_close($conn);
     </div>
 
     <?php else: ?>
-    <!-- FULL ADMIN KPI ROW -->
+    <!-- FULL ADMIN KPI ROW (split-pill removed from Total Applications & Admitted/Enrolled) -->
     <?php
     $needs_decision_total    = $stats['submitted'] + $stats['under_review'];
     $requires_followup_total = $stats['resubmitted'] + $stats['rejected_docs'];
     $assessments_total       = $stats['exam_scheduled'] + $stats['interview_scheduled'];
     ?>
     <div class="kpi-row">
+        <!-- Total Applications (split-pill REMOVED) -->
         <div class="kpi-card">
             <div class="kpi-label">Total Applications</div>
             <div class="kpi-value"><?php echo (int)$stats['total']; ?></div>
+            <!-- kpi-split removed -->
             <div class="kpi-footer">
                 <span>All submissions</span>
                 <a class="kpi-link" href="admin-applications.php">View</a>
             </div>
         </div>
+
         <div class="kpi-card">
             <div class="kpi-label">Needs Decision</div>
             <div class="kpi-value"><?php echo (int)$needs_decision_total; ?></div>
@@ -406,6 +534,7 @@ mysqli_close($conn);
                 <a class="kpi-link" href="admin-applications.php?status=Documents%20Under%20Review">Focus</a>
             </div>
         </div>
+
         <div class="kpi-card">
             <div class="kpi-label">Requires Follow-up</div>
             <div class="kpi-value"><?php echo (int)$requires_followup_total; ?></div>
@@ -414,6 +543,7 @@ mysqli_close($conn);
                 <a class="kpi-link" href="admin-applications.php?status=Documents%20Re-submitted">View</a>
             </div>
         </div>
+
         <div class="kpi-card">
             <div class="kpi-label">Upcoming Assessments</div>
             <div class="kpi-value"><?php echo (int)$assessments_total; ?></div>
@@ -422,9 +552,12 @@ mysqli_close($conn);
                 <a class="kpi-link" href="admin-applications.php?status=Exam%20Scheduled">Go</a>
             </div>
         </div>
+
+        <!-- Admitted / Enrolled (split-pill REMOVED) -->
         <div class="kpi-card">
             <div class="kpi-label">Admitted / Enrolled</div>
             <div class="kpi-value"><?php echo (int)$stats['admitted']; ?></div>
+            <!-- kpi-split removed -->
             <div class="kpi-footer">
                 <span>Completed admission</span>
                 <a class="kpi-link" href="admin-applications.php?status=Admitted%2FEnrolled">View</a>
@@ -442,24 +575,23 @@ mysqli_close($conn);
                     $track_param = $track_filter !== 'all' ? '&track=' . urlencode($track_filter) : '';
                     $q_param     = $q !== '' ? '&q=' . urlencode($q) : '';
                     $chips = [
-                        ['label'=>'All Submitted',       'status'=>'all',                      'count'=>$stats['total']],
-                        ['label'=>'Re-submitted',         'status'=>'Documents Re-submitted',   'count'=>$stats['resubmitted']],
-                        ['label'=>'New',                  'status'=>'Application Submitted',    'count'=>$stats['submitted']],
-                        ['label'=>'Under Review',         'status'=>'Documents Under Review',   'count'=>$stats['under_review']],
-                        ['label'=>'Interview Completed',  'status'=>'Interview Completed',      'count'=>$stats['interview_completed']],
+                        ['label'=>'Re-submitted',         'status'=>'Documents Re-submitted',   'count'=>$stats['resubmitted'], 'priority'=>true],
+                        ['label'=>'New',                  'status'=>'Application Submitted',    'count'=>$stats['submitted'],   'priority'=>false],
+                        ['label'=>'Under Review',         'status'=>'Documents Under Review',   'count'=>$stats['under_review'],'priority'=>false],
+                        ['label'=>'Interview Completed',  'status'=>'Interview Completed',      'count'=>$stats['interview_completed'], 'priority'=>false],
                     ];
                     foreach ($chips as $c) {
                         $is_active = ($filter === $c['status']);
-                        $href = 'admin-applications.php?status=' . ($c['status'] === 'all' ? 'all' : urlencode($c['status'])) . $track_param . $q_param;
-                        echo '<a class="chip' . ($is_active ? ' active' : '') . '" href="' . htmlspecialchars($href) . '">'
+                        $href = 'admin-applications.php?status=' . urlencode($c['status']) . $track_param . $q_param;
+                        $class = 'chip';
+                        if ($is_active) $class .= ' active';
+                        if (!empty($c['priority'])) $class .= ' priority-chip';
+                        echo '<a class="' . $class . '" href="' . htmlspecialchars($href) . '">'
                             . htmlspecialchars($c['label'])
                             . ' <span class="chip-count">(' . (int)$c['count'] . ')</span>'
                             . '</a>';
                     }
                     ?>
-                    <a class="chip" href="admin-final-decision.php">
-                        Final Decision <span class="chip-count">(<?php echo (int)$stats['interview_completed']; ?>)</span>
-                    </a>
                 </div>
             </div>
             <div class="queue-controls">
@@ -468,32 +600,76 @@ mysqli_close($conn);
         </div>
 
         <details class="metrics">
-            <summary>View metrics</summary>
-            <div class="metrics-grid">
-                <div class="metric"><div class="num"><?php echo (int)$stats['verified']; ?></div><div class="lbl">Documents Verified</div></div>
-                <div class="metric"><div class="num"><?php echo (int)$stats['rejected_docs']; ?></div><div class="lbl">Documents Rejected</div></div>
-                <div class="metric"><div class="num"><?php echo (int)$stats['exam_scheduled']; ?></div><div class="lbl">Exam Scheduled</div></div>
-                <div class="metric"><div class="num"><?php echo (int)$stats['exam_completed']; ?></div><div class="lbl">Exam Passed</div></div>
-                <div class="metric"><div class="num"><?php echo (int)$stats['exam_failed']; ?></div><div class="lbl">Exam Failed</div></div>
-                <div class="metric">
-//         <div class="num"><?php echo (int)($stats['no_show_exam'] + $stats['no_show_interview']); ?></div>
-//         <div class="lbl">No Show</div>
-//         <div style="font-size:0.72rem; color:var(--text-gray); margin-top:0.25rem;">
-//             <?php echo (int)$stats['no_show_exam']; ?> exam
-//             &nbsp;·&nbsp;
-//             <?php echo (int)$stats['no_show_interview']; ?> interview
-//         </div>
-//     </div>
-                <div class="metric"><div class="num"><?php echo (int)$stats['interview_scheduled']; ?></div><div class="lbl">Interview Scheduled</div></div>
-                <div class="metric"><div class="num"><?php echo (int)$stats['interview_completed']; ?></div><div class="lbl">Interview Completed</div></div>
-                <div class="metric"><div class="num"><?php echo (int)$stats['admitted']; ?></div><div class="lbl">Admitted/Enrolled</div></div>
-                <div class="metric"><div class="num"><?php echo (int)$stats['rejected_final']; ?></div><div class="lbl">Rejected (Final)</div></div>
-                <div class="metric">
-                    <div class="num"><?php echo (int)$stats['withdrawn']; ?></div>
-                    <div class="lbl">Withdrawn by Applicant</div>
+            <summary>View Metrics</summary>
+
+            <!-- Documents stage -->
+            <div class="metrics-group">
+                <div class="metrics-group-label">Documents</div>
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <div class="num"><?php echo (int)$stats['verified']; ?></div>
+                        <div class="lbl">Documents Verified</div>
+                    </div>
+                    <div class="metric">
+                        <div class="num"><?php echo (int)$stats['rejected_docs']; ?></div>
+                        <div class="lbl">Documents Rejected</div>
+                    </div>
                 </div>
-                <div class="metric"><div class="num"><?php echo (int)$stats['ched']; ?></div><div class="lbl">CHED Applicants</div></div>
-                <div class="metric"><div class="num"><?php echo (int)$stats['tesda']; ?></div><div class="lbl">TESDA Applicants</div></div>
+            </div>
+
+            <!-- Assessments stage -->
+            <div class="metrics-group">
+                <div class="metrics-group-label">Assessments</div>
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <div class="num"><?php echo (int)$stats['exam_scheduled']; ?></div>
+                        <div class="lbl">Exam Scheduled</div>
+                    </div>
+                    <div class="metric">
+                        <div class="num"><?php echo (int)$stats['exam_completed']; ?></div>
+                        <div class="lbl">Exam Passed</div>
+                    </div>
+                    <div class="metric">
+                        <div class="num"><?php echo (int)$stats['exam_failed']; ?></div>
+                        <div class="lbl">Exam Failed</div>
+                    </div>
+                    <div class="metric">
+                        <div class="num"><?php echo (int)($stats['no_show_exam'] + $stats['no_show_interview']); ?></div>
+                        <div class="lbl">No Show</div>
+                        <div class="metric-sub">
+                            <?php echo (int)$stats['no_show_exam']; ?> exam
+                            &nbsp;·&nbsp;
+                            <?php echo (int)$stats['no_show_interview']; ?> interview
+                        </div>
+                    </div>
+                    <div class="metric">
+                        <div class="num"><?php echo (int)$stats['interview_scheduled']; ?></div>
+                        <div class="lbl">Interview Scheduled</div>
+                    </div>
+                    <div class="metric">
+                        <div class="num"><?php echo (int)$stats['interview_completed']; ?></div>
+                        <div class="lbl">Interview Completed</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Final outcomes -->
+            <div class="metrics-group">
+                <div class="metrics-group-label">Final Outcomes</div>
+                <div class="metrics-grid">
+                    <div class="metric outcome-good">
+                        <div class="num"><?php echo (int)$stats['admitted']; ?></div>
+                        <div class="lbl">Admitted/Enrolled</div>
+                    </div>
+                    <div class="metric outcome-bad">
+                        <div class="num"><?php echo (int)$stats['rejected_final']; ?></div>
+                        <div class="lbl">Rejected (Final)</div>
+                    </div>
+                    <div class="metric">
+                        <div class="num"><?php echo (int)$stats['withdrawn']; ?></div>
+                        <div class="lbl">Withdrawn by Applicant</div>
+                    </div>
+                </div>
             </div>
         </details>
     </div>

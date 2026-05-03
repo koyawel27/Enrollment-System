@@ -568,9 +568,6 @@ mysqli_close($conn);
             </a>
         </div>
         <?php endif; ?>
-        <div style="margin-top:1rem; font-size:0.82rem;">
-            <a href="admin-reevaluate-exam-failed.php" style="color:var(--gray);">Re-evaluate wrongly failed applicants (one-time fix)</a>
-        </div>
     </div>
     <?php endif; ?>
 

@@ -45,13 +45,14 @@ if (empty($errors)) {
     if ($existing) {
         if ((int)$existing['email_verified'] === 0) {
             // Account exists but unverified — resend OTP and redirect to verify
-            $otp        = str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-            $expires_at = date('Y-m-d H:i:s', strtotime('+10 minutes'));
+            $otp = str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
 
             $upd = mysqli_prepare($conn,
-                "UPDATE users SET otp_code = ?, otp_expires_at = ? WHERE id = ?"
+                "UPDATE users
+                 SET otp_code = ?, otp_expires_at = DATE_ADD(NOW(), INTERVAL 10 MINUTE)
+                 WHERE id = ?"
             );
-            mysqli_stmt_bind_param($upd, 'ssi', $otp, $expires_at, $existing['id']);
+            mysqli_stmt_bind_param($upd, 'si', $otp, $existing['id']);
             mysqli_stmt_execute($upd);
             mysqli_stmt_close($upd);
 
@@ -79,13 +80,11 @@ if (!empty($errors)) {
 // ── Create new unverified account ─────────────────────────
 $hashed  = password_hash($password, PASSWORD_DEFAULT);
 $otp     = str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-$expires = date('Y-m-d H:i:s', strtotime('+10 minutes'));
-
 $stmt = mysqli_prepare($conn,
     "INSERT INTO users (email, password, email_verified, otp_code, otp_expires_at)
-     VALUES (?, ?, 0, ?, ?)"
+     VALUES (?, ?, 0, ?, DATE_ADD(NOW(), INTERVAL 10 MINUTE))"
 );
-mysqli_stmt_bind_param($stmt, 'ssss', $email, $hashed, $otp, $expires);
+mysqli_stmt_bind_param($stmt, 'sss', $email, $hashed, $otp);
 
 if (!mysqli_stmt_execute($stmt)) {
     $_SESSION['error'] = 'Registration failed. Please try again.';

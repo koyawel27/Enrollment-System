@@ -849,7 +849,7 @@ mysqli_close($conn);
     <?php if (!$is_print_view): ?>
     <div class="top-nav">
         <div>
-            <a href="admin-dashboard.php" class="back-link">← Back to Dashboard</a>
+            <a href="admin-applications.php" class="back-link">← Back</a>
             <button class="toggle-sections-btn" id="toggleSectionsBtn" style="margin-left: 1rem;">Expand All</button>
         </div>
         <span style="font-size:0.82rem; color:var(--text-gray);">

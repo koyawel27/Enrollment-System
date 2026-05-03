@@ -29,7 +29,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['otp'])) {
     $entered_otp = trim($_POST['otp'] ?? '');
 
     $stmt = mysqli_prepare($conn,
-        "SELECT otp_code, otp_expires_at FROM users
+        "SELECT otp_code, otp_expires_at, (otp_expires_at > NOW()) AS otp_not_expired
+         FROM users
          WHERE id = ? AND email_verified = 0"
     );
     mysqli_stmt_bind_param($stmt, 'i', $user_id);
@@ -41,7 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['otp'])) {
         $error = 'Account not found or already verified.';
     } elseif (empty($row['otp_code'])) {
         $error = 'No OTP found. Please request a new one.';
-    } elseif (strtotime($row['otp_expires_at']) < time()) {
+    } elseif ((int)$row['otp_not_expired'] !== 1) {
         $error = 'Your OTP has expired. Please request a new one.';
     } elseif ($entered_otp !== $row['otp_code']) {
         $error = 'Incorrect OTP. Please check the code and try again.';
@@ -69,7 +70,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['otp'])) {
 // ── FETCH OTP EXPIRY for countdown ────────────────────────
 $expires_at = null;
 $stmt = mysqli_prepare($conn,
-    "SELECT otp_expires_at FROM users WHERE id = ? AND email_verified = 0"
+    "SELECT otp_expires_at,
+            GREATEST(0, TIMESTAMPDIFF(SECOND, NOW(), otp_expires_at)) AS seconds_left
+     FROM users
+     WHERE id = ? AND email_verified = 0"
 );
 mysqli_stmt_bind_param($stmt, 'i', $user_id);
 mysqli_stmt_execute($stmt);
@@ -79,9 +83,10 @@ mysqli_close($conn);
 
 if ($row) {
     $expires_at = $row['otp_expires_at'];
+    $seconds_left = (int)$row['seconds_left'];
+} else {
+    $seconds_left = 0;
 }
-
-$seconds_left = $expires_at ? max(0, strtotime($expires_at) - time()) : 0;
 ?>
 <!DOCTYPE html>
 <html lang="en">

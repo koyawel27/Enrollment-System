@@ -46,14 +46,6 @@ if (!in_array($status, $allowed_statuses)) {
     exit;
 }
 
-// If Application Submitted, auto-transition to Documents Under Review when loading this page
-// (or we could do it on first load - the "Start Review" equivalent)
-// Actually, the user may want to review first then click "Start Review". For simplicity,
-// we'll show the Accept/Reject form only when status is Documents Under Review or Documents Re-submitted.
-// When Application Submitted, we need "Start Document Review" first. So we have two states:
-// - Application Submitted: show "Start Review" button (posts new_status=Documents Under Review)
-// - Documents Under Review / Documents Re-submitted: show Accept + Reject
-
 $apt = $app['applicant_type'] ?? 'Freshmen';
 $a = $app;
 
@@ -160,7 +152,7 @@ echo $id; ?> | BPC iEnroll</title>
 include '../shared/admin-sidebar.php'; ?>
 
 <main class="main">
-    <a href="admin-dashboard.php" class="back-link">← Back to Dashboard</a>
+    <a href="admin-applications.php" class="back-link">← Back</a>
     <div class="page-header">
         <h1>Review Documents — <?php
 echo htmlspecialchars($a['last_name'].', '.$a['first_name']); ?></h1>
@@ -254,7 +246,7 @@ echo $id; ?>">
                         <input type="hidden" name="new_status" value="Documents Under Review">
                         <input type="hidden" name="return_to" value="review">
                         <button type="submit" class="btn btn-start" onclick="return confirm('Start document review?');">
-                            🔍 Start Document Review
+                            Start Document Review
                         </button>
                     </form>
                     <p style="font-size:0.8rem;color:var(--text-gray);margin-top:0.75rem;">After starting, you can Accept or Reject documents.</p>
@@ -264,7 +256,7 @@ elseif ($status === 'Documents Under Review' || $status === 'Documents Re-submit
                     <?php
 if ($status === 'Documents Re-submitted'): ?>
                         <div class="alert-warning">
-                            ⚠️ Student has re-uploaded documents.
+                            Student has re-uploaded documents.
                             <?php
 if (!empty($a['resubmission_count'])): ?>(Attempt #<?php
 echo (int)$a['resubmission_count']; ?>)<?php
@@ -279,11 +271,11 @@ echo $id; ?>">
                         <input type="hidden" name="new_status" value="Documents Verified">
                         <input type="hidden" name="return_to" value="dashboard">
                         <button type="submit" class="btn btn-approve" onclick="return confirm('Approve documents for this application?');">
-                            ✅ Approve Documents
+                            Approve Documents
                         </button>
                     </form>
 
-                    <button type="button" class="btn btn-reject" onclick="toggleRejectForm()">❌ Reject Documents</button>
+                    <button type="button" class="btn btn-reject" onclick="toggleRejectForm()">Reject Documents</button>
 
                     <div class="rejection-form" id="rejectForm">
                         <form method="POST" action="admin-update-status.php">
