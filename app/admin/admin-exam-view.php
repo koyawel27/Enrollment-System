@@ -228,11 +228,13 @@ mysqli_close($conn);
                             $is_withdrawn = ($a['status'] === 'Application Withdrawn');
 
                             // Determine result key for JS filtering
-                            if ($is_noshow)      $result_key = 'noshow';
-                            elseif ($is_tesda)   $result_key = 'tesda';
+                            $passed_statuses = ['Exam Completed','Interview Scheduled','Interview Completed','Admitted/Enrolled'];
+
+                            if ($is_noshow)        $result_key = 'noshow';
+                            elseif ($is_tesda)     $result_key = 'tesda';
                             elseif ($is_withdrawn) $result_key = 'withdrawn';
-                            elseif ($a['status'] === 'Exam Completed') $result_key = 'passed';
-                            else                 $result_key = 'failed';
+                            elseif (in_array($a['status'], $passed_statuses)) $result_key = 'passed';
+                            else                   $result_key = 'failed';
 
                             // Score bar color
                             $bar_color = '#6c757d';
@@ -294,8 +296,8 @@ mysqli_close($conn);
                                 <span class="badge badge-noshow">No Show</span>
                                 <?php elseif ($score === null && !$is_tesda && !$is_withdrawn): ?>
                                 <span style="color:var(--text-gray);font-size:0.8rem;">Pending</span>
-                                <?php elseif ($a['status'] === 'Exam Completed'): ?>
-                                <span class="badge badge-pass">Passed</span>
+                                <?php elseif (in_array($a['status'], ['Exam Completed','Interview Scheduled','Interview Completed','Admitted/Enrolled'])): ?>
+                                    <span class="badge badge-pass">Passed</span>
                                 <?php elseif ($is_tesda): ?>
                                 <span class="badge badge-noshow" style="background:#fff3cd;color:#856404;">TESDA Offer Pending</span>
                                 <?php elseif ($is_withdrawn): ?>

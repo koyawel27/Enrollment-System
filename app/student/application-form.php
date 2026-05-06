@@ -268,8 +268,10 @@ echo $sex === 'Female' ? 'selected' : ''; ?>>Female</option>
                     </div>
                     <div class="form-group">
                         <label>Date of Birth <span class="required">*</span></label>
-                        <input type="date" id="dateOfBirth" name="dateOfBirth" value="<?php
-echo htmlspecialchars($app['date_of_birth'] ?? ''); ?>" required>
+                        <input type="date" id="dateOfBirth" name="dateOfBirth"
+                        value="<?php echo htmlspecialchars($app['date_of_birth'] ?? ''); ?>"
+                        max="<?php echo date('Y-m-d', strtotime('-16 years')); ?>"
+                        required>
                         <span class="error-message">Date of birth is required</span>
                     </div>
                 </div>

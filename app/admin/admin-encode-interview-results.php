@@ -48,12 +48,28 @@ if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $interview_date)) {
 }
 
 // ── Server-side guard: require at least one attendance mark ─
-$present_ids = $_POST['present'] ?? [];
-$results     = $_POST['result']  ?? [];
+// ── Server-side guard: require at least one attendance mark ─
+$present_ids      = $_POST['present']          ?? [];
+$results          = $_POST['result']           ?? [];
+$interview_scores = $_POST['interview_score']  ?? [];
 
 if (empty($present_ids) && empty($results)) {
     $_SESSION['admin_error'] = 'No attendance was recorded. Please mark at least one applicant as present or absent before confirming.';
     redirect('app/admin/admin-interview-results.php?interview_date=' . urlencode($interview_date));
+}
+
+// Validate scores for all present applicants
+foreach ($present_ids as $app_id => $val) {
+    $raw = $interview_scores[$app_id] ?? '';
+    if ($raw === '' || $raw === null) {
+        $_SESSION['admin_error'] = 'All present applicants must have an interview score. Please go back and fill in missing scores.';
+        redirect('app/admin/admin-interview-results.php?interview_date=' . urlencode($interview_date));
+    }
+    $score_check = (int)$raw;
+    if ($score_check < 0 || $score_check > 100) {
+        $_SESSION['admin_error'] = 'Interview scores must be between 0 and 100.';
+        redirect('app/admin/admin-interview-results.php?interview_date=' . urlencode($interview_date));
+    }
 }
 
 [$head_filter, $head_params] = get_head_program_filter($conn);
@@ -109,28 +125,6 @@ $upd_fail = mysqli_prepare($conn,
      WHERE id = ? AND status = 'Interview Scheduled'"
 );
 
-$upd_pass_noscore = mysqli_prepare($conn,
-    "UPDATE applications SET
-        status               = 'Interview Completed',
-        interview_marked_by  = ?,
-        interview_marked_at  = NOW(),
-        updated_at           = NOW(),
-        interview_score      = NULL,
-        interview_remarks    = ?
-     WHERE id = ? AND status = 'Interview Scheduled'"
-);
-
-$upd_fail_noscore = mysqli_prepare($conn,
-    "UPDATE applications SET
-        status               = 'Rejected',
-        interview_marked_by  = ?,
-        interview_marked_at  = NOW(),
-        updated_at           = NOW(),
-        interview_score      = NULL,
-        interview_remarks    = ?
-     WHERE id = ? AND status = 'Interview Scheduled'"
-);
-
 $upd_noshow = mysqli_prepare($conn,
     "UPDATE applications SET
         status               = 'Interview No Show',
@@ -173,15 +167,10 @@ foreach ($to_process as $app_id => $user_id) {
         $outcome = $results[$app_id] ?? '';
 
         if ($outcome === 'pass') {
-            if ($score_val === null) {
-                mysqli_stmt_bind_param($upd_pass_noscore, 'ssi', $marked_by, $interview_remarks, $app_id);
-                mysqli_stmt_execute($upd_pass_noscore);
-                $pass_stmt = $upd_pass_noscore;
-            } else {
+            if ($outcome === 'pass') {
                 mysqli_stmt_bind_param($upd_pass, 'sisi', $marked_by, $score_val, $interview_remarks, $app_id);
                 mysqli_stmt_execute($upd_pass);
                 $pass_stmt = $upd_pass;
-            }
             if (mysqli_stmt_affected_rows($pass_stmt) > 0) {
                 $cnt_pass++;
                 $new_status = 'Interview Completed';
@@ -207,15 +196,9 @@ foreach ($to_process as $app_id => $user_id) {
             }
         } else {
             // fail or unselected result → Rejected
-            if ($score_val === null) {
-                mysqli_stmt_bind_param($upd_fail_noscore, 'ssi', $marked_by, $interview_remarks, $app_id);
-                mysqli_stmt_execute($upd_fail_noscore);
-                $fail_stmt = $upd_fail_noscore;
-            } else {
-                mysqli_stmt_bind_param($upd_fail, 'sisi', $marked_by, $score_val, $interview_remarks, $app_id);
-                mysqli_stmt_execute($upd_fail);
-                $fail_stmt = $upd_fail;
-            }
+            mysqli_stmt_bind_param($upd_fail, 'sisi', $marked_by, $score_val, $interview_remarks, $app_id);
+            mysqli_stmt_execute($upd_fail);
+            $fail_stmt = $upd_fail;
             if (mysqli_stmt_affected_rows($fail_stmt) > 0) {
                 $cnt_fail++;
                 $new_status = 'Rejected';
@@ -258,8 +241,6 @@ foreach ($to_process as $app_id => $user_id) {
 
 mysqli_stmt_close($upd_pass);
 mysqli_stmt_close($upd_fail);
-mysqli_stmt_close($upd_pass_noscore);
-mysqli_stmt_close($upd_fail_noscore);
 mysqli_stmt_close($upd_noshow);
 mysqli_stmt_close($log);
 mysqli_stmt_close($mailFetch);

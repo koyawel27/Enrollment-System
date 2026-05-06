@@ -1083,3 +1083,37 @@ Implemented in `app/shared/admin-sidebar.php`:
 - **Decisions captured:** RBAC held stable; Super Admin / Admission Officer / Program Head / Registrar split finalized; FAQs remain hardcoded; Save Draft kept with ghost styling; Ngrok for SMTP link testing; InfinityFree rejected (587 blocked); deployment deferred.
 - **Outstanding:** See §5 — optional Updates-card investigation if a concrete bug resurfaces; otherwise maintenance-only.
 - **May 03 follow-up:** Deleted `app/admin/admin-bulk-update-status.php` (no `app/` references). Refreshed `SYSTEM_BEHAVIOR.txt` + `docs/SYSTEM_BEHAVIOR.txt` database appendix from `database/bpc_ienroll.sql`. Stakeholder: E2E testing marked complete; `folder_structure.txt` list updated.
+
+---
+
+## 18. MAY 6, 2026 SESSION SYNC (ADDITIVE UPDATE)
+
+### Bug Fixes Applied
+
+BIRTHDATE VALIDATION (Group 1):
+- `app/handlers/save-step.php` — added server-side age validation in Step 1; applicants must be at least 16 years old as of submission date; rejects with error if underage or future date
+- `app/student/application-form.php` — added max attribute on dateOfBirth input, dynamically calculated as `date('Y-m-d', strtotime('-16 years'))`; prevents browser date picker from selecting underage dates
+
+FINAL DECISION RBAC (Group 2):
+- `app/admin/admin-final-decision.php` — removed `ADMIN_ROLE_REGISTRAR` and `ADMIN_ROLE_PROGRAM_HEAD` from `require_admin_role()`; now restricted to `ADMIN_ROLE_SUPER_ADMIN` and `ADMIN_ROLE_ADMISSION_OFFICER` only
+- `app/admin/admin-set-final-decision.php` — removed `ADMIN_ROLE_REGISTRAR`; now restricted to `ADMIN_ROLE_SUPER_ADMIN` and `ADMIN_ROLE_ADMISSION_OFFICER` only
+- `app/shared/admin-sidebar.php` — Final Decision sidebar link wrapped in `(!$is_program_head && !$is_registrar)` check; link is now hidden from program heads and registrars entirely
+
+EXAM SCORE VALIDATION (Group 3):
+- `app/admin/admin-exam-results.php` — fixed score input bug where values over 100 were accepted; added live clamping in `updateResult()` JS function (auto-corrects to 100 if exceeded, 0 if below zero); added `invalidScore` check in form submit validation
+
+INTERVIEW SCORE FIELD (Group 4):
+- `app/admin/admin-interview-results.php` — added numeric Score/100 input column to the encoding table; score required when applicant is marked Present; 0-100 enforced via `clampInterviewScore()` JS function and submit validation; Preview column removed (redundant with result dropdown color coding); `togglePresent()`, `clearAll()` updated to enable/disable score input alongside result select
+- `app/admin/admin-encode-interview-results.php` — added server-side score validation; score is now required for all present applicants; removed `_noscore` prepared statement variants (`upd_pass_noscore`, `upd_fail_noscore`) since score is always required; added `foreach` validation loop before processing
+
+DATABASE:
+- `interview_score` column confirmed present (from `applications_add_interview_score_remarks.sql` migration); migration snippet documented: `ALTER TABLE applications ADD COLUMN IF NOT EXISTS interview_score INT NULL DEFAULT NULL AFTER exam_score;`
+
+EXAM VIEW BUG FIX (Bonus):
+- `app/admin/admin-exam-view.php` — fixed Result column showing "Failed" for applicants who passed but progressed beyond Exam Completed status; added `$passed_statuses` array `['Exam Completed','Interview Scheduled','Interview Completed','Admitted/Enrolled']`; both `result_key` logic and badge display now use `in_array()` check against this array
+
+### Decisions Made
+- Final Decision page restricted to `super_admin` and `admission_officer` only (program heads and registrars removed)
+- Interview score is required (not optional) whenever Present is checked, consistent with exam score behavior
+- Preview column removed from interview results table as redundant with result dropdown color coding
+- Birthdate validation is fully dynamic (no hardcoded years); recalculates on every page load

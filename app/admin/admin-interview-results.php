@@ -211,6 +211,11 @@ mysqli_close($conn);
         .result-select.pass { border-color:var(--bpc-green); background:#f0fdf4; color:var(--bpc-green); font-weight:700; }
         .result-select.fail { border-color:#dc3545; background:#fff5f5; color:#dc3545; font-weight:700; }
 
+        .score-input { transition:border-color 0.2s; }
+        .score-input:focus { outline:none; border-color:var(--bpc-green) !important; }
+        .score-input:disabled { background:#f0f0f0; color:#aaa; border-color:var(--border-color) !important; cursor:not-allowed; }
+        .score-input.filled { border-color:var(--bpc-green); background:#f0fdf4; }
+
         /* Preview badge — smaller than before */
         .result-preview { font-size:0.68rem; font-weight:700; padding:0.15rem 0.4rem; border-radius:6px; white-space:nowrap; }
         .rp-pass    { background:#d4edda; color:#155724; }
@@ -401,9 +406,9 @@ mysqli_close($conn);
                             <th>Interview Date</th>
                             <?php if ($single_date_selected): ?>
                             <th style="text-align:center;">Present</th>
+                            <th style="text-align:center;">Score / 100</th>
                             <th style="text-align:center;">Result</th>
                             <th>Remarks</th>
-                            <th style="text-align:center;">Preview</th>
                             <?php endif; ?>
                         </tr>
                     </thead>
@@ -443,6 +448,21 @@ mysqli_close($conn);
                                        onchange="togglePresent(this)">
                             </td>
                             <td style="text-align:center;">
+                                <div style="display:flex;align-items:center;gap:0.4rem;justify-content:center;">
+                                    <input type="number"
+                                        class="score-input"
+                                        name="interview_score[<?php echo $p['id']; ?>]"
+                                        id="iscore_<?php echo $p['id']; ?>"
+                                        min="0" max="100"
+                                        placeholder="—"
+                                        disabled
+                                        data-id="<?php echo $p['id']; ?>"
+                                        oninput="clampInterviewScore(this)"
+                                        style="width:72px;padding:0.45rem 0.5rem;border:2px solid var(--border-color);border-radius:6px;font-size:0.875rem;text-align:center;font-weight:700;">
+                                    <span style="font-size:0.72rem;color:var(--text-gray);">/ 100</span>
+                                </div>
+                            </td>
+                            <td style="text-align:center;">
                                 <select class="result-select"
                                         name="result[<?php echo $p['id']; ?>]"
                                         id="result_<?php echo $p['id']; ?>"
@@ -464,9 +484,6 @@ mysqli_close($conn);
                                               placeholder="Optional notes..." rows="2"
                                               style="width:180px;padding:0.35rem 0.5rem;border:1px solid #ccc;border-radius:4px;font-size:0.82rem;font-family:inherit;resize:vertical;"><?php echo htmlspecialchars($p['interview_remarks'] ?? ''); ?></textarea>
                                 </div>
-                            </td>
-                            <td style="text-align:center;">
-                                <span class="result-preview rp-noshow" id="preview_<?php echo $p['id']; ?>">No Show</span>
                             </td>
                             <?php endif; ?>
                         </tr>
@@ -580,18 +597,21 @@ const dateSelected = <?php echo $single_date_selected ? 'true' : 'false'; ?>;
 
 function togglePresent(cb) {
     if (!dateSelected) return;
-    const id  = cb.dataset.id;
-    const sel = document.getElementById('result_' + id);
-    const row = document.getElementById('irow_' + id);
+    const id    = cb.dataset.id;
+    const sel   = document.getElementById('result_' + id);
+    const score = document.getElementById('iscore_' + id);
+    const row   = document.getElementById('irow_' + id);
     if (cb.checked) {
-        sel.disabled = false;
+        if (sel)   sel.disabled   = false;
+        if (score) score.disabled = false;
         row.classList.remove('row-absent');
         row.dataset.present = '1';
         updatePreview(sel);
     } else {
-        sel.disabled = true; sel.value = ''; sel.className = 'result-select';
-        row.classList.add('row-absent'); row.dataset.present = '0';
-        setPreview(id, 'noshow', 'No Show');
+        if (sel)   { sel.disabled = true; sel.value = ''; sel.className = 'result-select'; }
+        if (score) { score.disabled = true; score.value = ''; score.classList.remove('filled'); }
+        row.classList.add('row-absent');
+        row.dataset.present = '0';
     }
     updateCounts();
     if (typeof filterInterviewTable === 'function') filterInterviewTable();
@@ -600,17 +620,21 @@ function togglePresent(cb) {
 function updatePreview(sel) {
     const id = sel.dataset.id;
     sel.className = 'result-select';
-    if (sel.value === 'pass')      { sel.classList.add('pass'); setPreview(id, 'pass', '✓ Pass'); }
-    else if (sel.value === 'fail') { sel.classList.add('fail'); setPreview(id, 'fail', '✕ Fail'); }
-    else                           { setPreview(id, 'pending', 'Select'); }
+    if (sel.value === 'pass')      { sel.classList.add('pass'); }
+    else if (sel.value === 'fail') { sel.classList.add('fail'); }
     updateCounts();
 }
 
-function setPreview(id, type, text) {
-    const el = document.getElementById('preview_' + id);
-    if (!el) return;
-    el.className = 'result-preview rp-' + type;
-    el.textContent = text;
+
+function clampInterviewScore(input) {
+    let val = parseInt(input.value);
+    if (!isNaN(val)) {
+        if (val > 100) { val = 100; input.value = 100; }
+        if (val < 0)   { val = 0;   input.value = 0;   }
+        input.classList.add('filled');
+    } else {
+        input.classList.remove('filled');
+    }
 }
 
 function toggleRemarks(id) {
@@ -654,12 +678,13 @@ function clearAll() {
     if (!dateSelected) return;
     document.querySelectorAll('.attend-cb').forEach(cb => {
         cb.checked = false;
-        const id  = cb.dataset.id;
-        const sel = document.getElementById('result_' + id);
-        if (sel) { sel.disabled = true; sel.value = ''; sel.className = 'result-select'; }
+        const id    = cb.dataset.id;
+        const sel   = document.getElementById('result_' + id);
+        const score = document.getElementById('iscore_' + id);
+        if (sel)   { sel.disabled = true; sel.value = ''; sel.className = 'result-select'; }
+        if (score) { score.disabled = true; score.value = ''; score.classList.remove('filled'); }
         const row = document.getElementById('irow_' + id);
         if (row) { row.classList.add('row-absent'); row.dataset.present = '0'; }
-        setPreview(id, 'noshow', 'No Show');
     });
     updateCounts();
     if (typeof filterInterviewTable === 'function') filterInterviewTable();
@@ -721,13 +746,31 @@ document.getElementById('interviewForm')?.addEventListener('submit', function(e)
         alert('No attendance has been recorded.\n\nPlease mark at least one applicant as Present before confirming.\n\nApplicants not marked as Present will be recorded as Interview No Show.');
         return false;
     }
-    let missing = false;
+    let missingResult = false;
+    let missingScore  = false;
+    let invalidScore  = false;
     document.querySelectorAll('.attend-cb:checked').forEach(cb => {
-        if (!document.getElementById('result_' + cb.dataset.id)?.value) missing = true;
+        const id      = cb.dataset.id;
+        const result  = document.getElementById('result_' + id)?.value;
+        const scoreEl = document.getElementById('iscore_' + id);
+        const score   = parseInt(scoreEl?.value ?? '');
+        if (!result) missingResult = true;
+        if (!scoreEl || scoreEl.value === '') missingScore = true;
+        else if (isNaN(score) || score < 0 || score > 100) invalidScore = true;
     });
-    if (missing) {
+    if (missingResult) {
         e.preventDefault();
         alert('Please select Pass or Fail for all applicants marked as present.');
+        return false;
+    }
+    if (missingScore) {
+        e.preventDefault();
+        alert('Please enter a score for all applicants marked as present.');
+        return false;
+    }
+    if (invalidScore) {
+        e.preventDefault();
+        alert('Interview scores must be between 0 and 100.');
         return false;
     }
     const totalRows    = form.querySelectorAll('input[name^="present"]').length;

@@ -9,7 +9,7 @@ session_start();
 require_once CONFIG_PATH . '/db.php';
 require_once CONFIG_PATH . '/admin-auth-check.php';
 require_once CONFIG_PATH . '/admin-permissions.php';
-require_admin_role([ADMIN_ROLE_SUPER_ADMIN, ADMIN_ROLE_ADMISSION_OFFICER, ADMIN_ROLE_REGISTRAR]);
+require_admin_role([ADMIN_ROLE_SUPER_ADMIN, ADMIN_ROLE_ADMISSION_OFFICER]);
 require_once CONFIG_PATH . '/applicant-messages.php';
 require_once APP_PATH . '/shared/MailService.php';
 

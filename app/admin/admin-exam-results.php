@@ -604,7 +604,13 @@ function togglePresent(checkbox) {
 function updateResult(scoreInput) {
     const id      = scoreInput.dataset.id;
     const passing = parseInt(scoreInput.dataset.passing) || 75;
-    const score   = parseInt(scoreInput.value);
+    let score     = parseInt(scoreInput.value);
+
+    // Clamp value to 0-100
+    if (!isNaN(score)) {
+        if (score > 100) { score = 100; scoreInput.value = 100; }
+        if (score < 0)   { score = 0;   scoreInput.value = 0;   }
+    }
 
     if (isNaN(score) || scoreInput.value === '') {
         scoreInput.classList.remove('pass', 'fail');
@@ -775,13 +781,24 @@ document.getElementById('resultsForm')?.addEventListener('submit', function(e) {
     }
 
     let missingScore = false;
+    let invalidScore = false;
     document.querySelectorAll('.attend-cb:checked').forEach(cb => {
-        const score = document.getElementById('score_' + cb.dataset.id)?.value;
-        if (score === '' || score === null) missingScore = true;
+        const scoreEl = document.getElementById('score_' + cb.dataset.id);
+        const score = parseInt(scoreEl?.value);
+        if (!scoreEl || scoreEl.value === '' || scoreEl.value === null) {
+            missingScore = true;
+        } else if (isNaN(score) || score < 0 || score > 100) {
+            invalidScore = true;
+        }
     });
     if (missingScore) {
         e.preventDefault();
         alert('Please enter a score for all applicants marked as present.');
+        return false;
+    }
+    if (invalidScore) {
+        e.preventDefault();
+        alert('Scores must be between 0 and 100.');
         return false;
     }
 

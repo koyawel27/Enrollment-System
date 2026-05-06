@@ -73,7 +73,19 @@ if ($step === 1) {
     $psa_registry_no = require_field('psaRegistryNo', 'PSA Registry Number', $errors);
 
     if (empty($errors)) {
-        $age         = !empty($date_of_birth) ? date_diff(date_create($date_of_birth), date_create('today'))->y : null;
+        $age = null;
+    if (!empty($date_of_birth)) {
+        $dob = date_create($date_of_birth);
+        $today = date_create('today');
+        if (!$dob || $dob >= $today) {
+            $errors[] = 'Please enter a valid date of birth.';
+        } else {
+            $age = date_diff($dob, $today)->y;
+            if ($age < 16) {
+                $errors[] = 'Applicants must be at least 16 years old to apply.';
+            }
+        }
+    }
         $middle_name = optional('middleName');
         $suffix      = optional('suffix');
         $religion    = optional('religion');

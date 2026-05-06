@@ -12,8 +12,6 @@ require_once CONFIG_PATH . '/admin-permissions.php';
 require_admin_role([
     ADMIN_ROLE_SUPER_ADMIN,
     ADMIN_ROLE_ADMISSION_OFFICER,
-    ADMIN_ROLE_REGISTRAR,
-    ADMIN_ROLE_PROGRAM_HEAD,
 ]);
 require_once CONFIG_PATH . '/programs.php';
 
