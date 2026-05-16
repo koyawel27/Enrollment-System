@@ -17,7 +17,7 @@
      --bg-light:#f4f6f8;
      --border-color:#e0e0e0;
      --white:#ffffff;
-     --sidebar-expanded-width: 290px;
+     --sidebar-expanded-width: 250px;
      --sidebar-collapsed-width: 72px;
      --sidebar-width: var(--sidebar-expanded-width);
  }
