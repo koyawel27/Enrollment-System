@@ -1105,7 +1105,7 @@ mysqli_close($conn);
                 <?php elseif ($status === 'Documents Under Review' || $status === 'Documents Re-submitted'): ?>
                     <?php if ($status === 'Documents Re-submitted'): ?>
                         <div class="alert alert-warning" style="margin-bottom:1rem; font-size:0.82rem;">
-                            ⚠️ Student has re-uploaded documents.
+                            Student has re-uploaded documents.
                             <?php if (!empty($a['resubmission_count'])): ?>
                                 (Attempt #<?php echo (int)$a['resubmission_count']; ?>)
                             <?php endif; ?>

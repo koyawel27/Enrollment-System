@@ -223,26 +223,24 @@ $first = false; endforeach; ?>
         <div class="right-panel">
             <div class="info-card">
                 <h3>Applicant</h3>
-                <div class="info-row"><strong>Name:</strong> <?php
-echo htmlspecialchars($a['first_name'].' '.$a['last_name']); ?></div>
-                <div class="info-row"><strong>Email:</strong> <?php
-echo htmlspecialchars($a['user_email'] ?? '—'); ?></div>
-                <div class="info-row"><strong>Program:</strong> <?php
-echo htmlspecialchars($fc_label); ?></div>
-                <div class="info-row"><strong>Track:</strong> <?php
-echo htmlspecialchars($a['program_category'] ?? '—'); ?></div>
-                <div class="info-row"><strong>Type:</strong> <?php
-echo htmlspecialchars($apt); ?></div>
+                <div class="info-row"><strong>Name:</strong> <?php echo htmlspecialchars($a['first_name'].' '.$a['last_name']); ?></div>
+
+				<div class="info-row"><strong>Email:</strong> <?php echo htmlspecialchars($a['user_email'] ?? '—'); ?></div>
+
+				<div class="info-row"><strong>Program:</strong> <?php echo htmlspecialchars($fc_label); ?></div>
+
+				<div class="info-row"><strong>Track:</strong> <?php echo htmlspecialchars($a['program_category'] ?? '—'); ?></div>
+
+				<div class="info-row"><strong>Type:</strong> <?php echo htmlspecialchars($apt); ?> </div>
             </div>
 
             <div class="action-card">
                 <h3>Document Review</h3>
 
                 <?php
-if ($status === 'Application Submitted'): ?>
+				if ($status === 'Application Submitted'): ?>
                     <form method="POST" action="admin-update-status.php">
-                        <input type="hidden" name="application_id" value="<?php
-echo $id; ?>">
+                        <input type="hidden" name="application_id" value="<?php echo $id; ?>">
                         <input type="hidden" name="new_status" value="Documents Under Review">
                         <input type="hidden" name="return_to" value="review">
                         <button type="submit" class="btn btn-start" onclick="return confirm('Start document review?');">
@@ -252,14 +250,14 @@ echo $id; ?>">
                     <p style="font-size:0.8rem;color:var(--text-gray);margin-top:0.75rem;">After starting, you can Accept or Reject documents.</p>
 
                 <?php
-elseif ($status === 'Documents Under Review' || $status === 'Documents Re-submitted'): ?>
+				elseif ($status === 'Documents Under Review' || $status === 'Documents Re-submitted'): ?>
                     <?php
-if ($status === 'Documents Re-submitted'): ?>
+				if ($status === 'Documents Re-submitted'): ?>
                         <div class="alert-warning">
                             Student has re-uploaded documents.
                             <?php
-if (!empty($a['resubmission_count'])): ?>(Attempt #<?php
-echo (int)$a['resubmission_count']; ?>)<?php
+				if (!empty($a['resubmission_count'])): ?>(Attempt #<?php
+				echo (int)$a['resubmission_count']; ?>)<?php
 endif; ?>
                         </div>
                     <?php
