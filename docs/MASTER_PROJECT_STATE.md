@@ -24,7 +24,7 @@ Build a complete web-based admission management system for Bulacan Polytechnic C
 - **Backend:** Pure PHP (no frameworks), MySQL (via mysqli)
 - **Frontend:** Vanilla HTML/CSS/JavaScript (no frameworks)
 - **Server:** XAMPP (Apache + MySQL on Windows)
-- **Database:** `bpc_ienroll` on port 3307
+- **Database:** `bpc_ienroll` on port 3306
 - **Email/Notifications:** PHPMailer (SMTP transport)
 - **File Structure:** `C:\xampp\htdocs\Enrollment System\`
 
@@ -48,7 +48,7 @@ admins (id, name, email, password, created_at)
 ```
 
 ### Critical Constraints
-- Port 3307 for MySQL (not default 3306)
+- Port 3306 for MySQL (not default 3306)
 - All admin pages must include `admin-auth-check.php`
 - Student pages must include proper session checks
 - File paths use forward slashes even on Windows
@@ -471,8 +471,8 @@ Based on the uploaded image from the professor:
 - Use `created_at` not `changed_at` (column doesn't exist)
 
 ### Database Port
-- MySQL runs on **port 3307** not 3306
-- Connection string: `mysqli_connect('localhost', 'root', '', 'bpc_ienroll', 3307)`
+- MySQL runs on **port 3306** not 3306
+- Connection string: `mysqli_connect('localhost', 'root', '', 'bpc_ienroll', 3306)`
 
 ### Routing and Redirect Standard
 - Use `config/paths.php` constants for all route generation and redirects

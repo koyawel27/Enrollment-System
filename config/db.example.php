@@ -11,7 +11,7 @@ require_once __DIR__ . '/paths.php';
 
 // Database credentials (XAMPP defaults shown; adjust for your machine)
 define('DB_HOST', 'localhost');
-define('DB_PORT', 3307);             // Typical XAMPP custom port — check MySQL panel
+define('DB_PORT', 3306);             // Typical XAMPP custom port — check MySQL panel
 define('DB_USER', 'root');
 define('DB_PASS', '');               // Empty is common locally; use a strong password in production
 define('DB_NAME', 'bpc_ienroll');

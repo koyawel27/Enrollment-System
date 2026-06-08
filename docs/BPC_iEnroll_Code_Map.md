@@ -40,7 +40,7 @@
 - **Database Connection**
   - File: `config/db.php`
   - What it does:
-    - Defines constants for host, user, password, database, **port 3307**.
+    - Defines constants for host, user, password, database, **port 3306**.
     - Creates/retrieves the `mysqli` connection used by all scripts.
 
 - **Admin Auth Guard**
@@ -297,8 +297,8 @@
   - Physical files saved in `uploads/`.
   - Paths saved in the database and displayed in `app/admin/admin-application-detail.php`.
 
-- **Q: Where does the database port 3307 appear in code?**
-  - `config/db.php` – defines connection settings including port `3307`.
+- **Q: Where does the database port 3306 appear in code?**
+  - `config/db.php` – defines connection settings including port `3306`.
 
 - **Q: Where is the “Admitted” banner text for successful applicants?**
   - `app/student/dashboard.php` – in the block that checks for `status = 'Admitted/Enrolled'` and renders the success message for Bulacan Polytechnic College.

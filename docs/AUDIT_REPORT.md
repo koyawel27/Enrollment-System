@@ -10,7 +10,7 @@
 
 | MASTER Claim | Actual Code | Notes |
 |--------------|-------------|-------|
-| Port 3307 | `config/db.php` line 9: `define('DB_PORT', 3307)` | ✓ Correct |
+| Port 3306 | `config/db.php` line 9: `define('DB_PORT', 3306)` | ✓ Correct |
 | Pure PHP, no AJAX | All forms use POST + redirect | ✓ Correct |
 | Session-based auth | Student: `$_SESSION['user_id']`, Admin: `$_SESSION['admin_id']` | ✓ Correct |
 | Prepared statements | All queries use `mysqli_prepare` + `bind_param` | ✓ Correct |
@@ -104,9 +104,9 @@ POST-only handlers (admin-update-status, admin-set-exam, etc.) do not need the s
 
 Linked by the same 7 admin HTML pages. ✓
 
-### Port 3307
+### Port 3306
 
-- `config/db.php`: `DB_PORT` = 3307 ✓  
+- `config/db.php`: `DB_PORT` = 3306 ✓  
 - No other DB config files found. ✓  
 
 ---
@@ -142,7 +142,7 @@ Linked by the same 7 admin HTML pages. ✓
 
 | Category | Status |
 |----------|--------|
-| Port 3307 | ✓ Correct in config |
+| Port 3306 | ✓ Correct in config |
 | admin-auth-check | ✓ All admin pages |
 | admin-sidebar | ✓ All admin HTML pages |
 | admin-styles.css | ✓ All admin HTML pages |

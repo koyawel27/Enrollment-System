@@ -8,7 +8,7 @@ Web-based admissions workflow for Bulacan Polytechnic College: student registrat
 
 - **Windows** with [XAMPP](https://www.apachefriends.org/) (or equivalent: Apache + PHP + MariaDB/MySQL)
 - **PHP** 8.x (matches typical XAMPP bundles)
-- **MariaDB/MySQL** — this project expects MySQL on port **3307** by default (adjust if yours uses `3306`)
+- **MariaDB/MySQL** — this project expects MySQL on port **3306** by default (adjust if yours uses `3306`)
 
 ---
 

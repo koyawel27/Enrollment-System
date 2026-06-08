@@ -40,13 +40,13 @@
 - **Frontend:** HTML5, CSS3, vanilla JavaScript (no JS frameworks, no AJAX)
 - **Web Server:** Apache via XAMPP on Windows
 - **Database:** MySQL, database name `bpc_ienroll`
-- **Host & Port:** `localhost` on **port 3307**
+- **Host & Port:** `localhost` on **port 3306**
   - Typical connection:
     - Host: `localhost`
     - User: `root`
     - Password: `''` (empty; may vary per environment)
     - Database: `bpc_ienroll`
-    - Port: `3307`
+    - Port: `3306`
 
 ### 2.2 File System & Deployment Layout
 
@@ -85,7 +85,7 @@
 
 - **No AJAX:** All forms use standard HTTP POST submissions with full-page redirects. Any “live” feedback is implemented with server-side rendering on reload.
 - **Status-Driven Workflow:** `applications.status` (ENUM) is the primary driver of what actions are available on each admin page and what banners/timelines appear on the applicant dashboard.
-- **Port Constraint:** MySQL must run on **port 3307**. All environments must mirror this configuration or adapt `config/db.php` accordingly.
+- **Port Constraint:** MySQL must run on **port 3306**. All environments must mirror this configuration or adapt `config/db.php` accordingly.
 - **Filesystem Persistence:** Since documents are stored on the filesystem, deployments and backups must preserve the `uploads/` directory alongside the database.
 
 ---
@@ -152,7 +152,7 @@ This section lists the **actual, active files** and their responsibilities, base
 
 | File / Directory | Role / Function |
 |------------------|-----------------|
-| `config/db.php` | Central database configuration and connection helper. Defines constants for host, database name, user, password, and **port 3307**. Exposes a reusable connection instance or function. |
+| `config/db.php` | Central database configuration and connection helper. Defines constants for host, database name, user, password, and **port 3306**. Exposes a reusable connection instance or function. |
 | `app/shared/admin-sidebar.php` | Reusable sidebar component included by all admin HTML pages (`admin-app/student/dashboard.php`, `app/admin/admin-application-detail.php`, `app/admin/admin-exam-schedule.php`, `app/admin/admin-exam-results.php`, `app/admin/admin-interview-schedule.php`, `app/admin/admin-interview-results.php`, `app/admin/admin-final-decision.php`). |
 | `assets/admin-styles.css` | Shared CSS for admin layout, including sidebar, top navigation, and card/table styling. All admin HTML pages link to this stylesheet. |
 | `assets/` | Contains BPC logo, images, icons, and possibly additional CSS files for the public-facing and applicant-facing UI. |

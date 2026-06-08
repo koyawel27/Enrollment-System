@@ -8,7 +8,7 @@ require_once dirname(__DIR__, 2) . '/config/paths.php';
  */
 
 // Database connection
-$conn = mysqli_connect('localhost', 'root', '', 'bpc_ienroll', 3307);
+$conn = mysqli_connect('localhost', 'root', '', 'bpc_ienroll', 3306);
 
 if (!$conn) {
     die("Connection failed: " . mysqli_connect_error());

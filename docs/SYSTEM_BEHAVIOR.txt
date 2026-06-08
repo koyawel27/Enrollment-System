@@ -1342,7 +1342,7 @@ CONFIRMED DATA MODEL NOTES
       index on program_code
 
 - DATABASE SCHEMA (AUTHORITATIVE: database/bpc_ienroll.sql)
-  - Export header indicates: Database `bpc_ienroll`, host 127.0.0.1:3307, generated **May 03, 2026**, MariaDB 10.4.32. Treat that file as the live snapshot; re-export from phpMyAdmin when schema drifts.
+  - Export header indicates: Database `bpc_ienroll`, host 127.0.0.1:3306, generated **May 03, 2026**, MariaDB 10.4.32. Treat that file as the live snapshot; re-export from phpMyAdmin when schema drifts.
 
   - **Tables** (structure present in dump):
       admins
